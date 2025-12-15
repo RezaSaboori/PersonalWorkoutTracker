@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "expo.vscode-expo-tools",
+    "ms-vscode.vscode-typescript-next",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "chrmarti.react-native-snippet",
+    "diemasmichiels.emulator"
+  ]
+}
+

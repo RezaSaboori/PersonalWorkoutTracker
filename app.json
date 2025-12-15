@@ -6,14 +6,22 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "scheme": "workouttracker",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.WorkoutTracker",
+      "deploymentTarget": "18.0",
+      "usesAppleIntelligence": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppleEventsUsageDescription": "This app uses Apple Intelligence to provide personalized workout recommendations.",
+        "NSCoreMLUsageDescription": "This app uses Core ML for on-device AI-powered workout analysis."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +29,20 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.WorkoutTracker"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "61e56a9f-ec23-4918-b045-edc76dfd0f9e"
+      }
     }
   }
 }

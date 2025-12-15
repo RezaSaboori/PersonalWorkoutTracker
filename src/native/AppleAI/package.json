@@ -1,0 +1,18 @@
+{
+  "name": "expo-apple-ai",
+  "version": "1.0.0",
+  "description": "Apple Intelligence API integration for Expo",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "expo",
+    "apple-intelligence",
+    "coreml",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+
