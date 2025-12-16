@@ -323,22 +323,41 @@ jobs:
               exit 1
             fi
             echo "Found project: $PROJECT"
-            SCHEME=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+            ALL_SCHEMES=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -20)
             # Get targets
             TARGETS=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Targets:" | grep -v "Targets:" | head -20)
           else
             echo "Found workspace: $WORKSPACE"
-            SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+            ALL_SCHEMES=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -20)
             # Get targets from workspace
             TARGETS=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Targets:" | grep -v "Targets:" | head -20)
+          fi
+          
+          echo ""
+          echo "All available schemes:"
+          echo "$ALL_SCHEMES"
+          echo ""
+          
+          # Filter out Pod schemes and find app scheme
+          SCHEME=$(echo "$ALL_SCHEMES" | grep -v "Pods\|EXConstants\|Expo\|Tests\|Spec" | grep -i "workout\|app" | head -n 1 | xargs)
+          
+          if [ -z "$SCHEME" ]; then
+            # Try to find any non-Pod scheme
+            SCHEME=$(echo "$ALL_SCHEMES" | grep -v "Pods\|EXConstants\|Expo\|Tests\|Spec" | head -n 1 | xargs)
           fi
           
           if [ -z "$SCHEME" ]; then
             # Default to app name from app.json
             SCHEME="WorkoutTracker"
-            echo "Using default scheme: $SCHEME"
+            echo "⚠️  No app scheme found, using default: $SCHEME"
           else
-            echo "Discovered scheme: $SCHEME"
+            echo "✅ Discovered app scheme: $SCHEME"
+          fi
+          
+          # Verify it's not a Pod scheme
+          if [[ "$SCHEME" == *"Pods"* ]] || [[ "$SCHEME" == *"EXConstants"* ]] || [[ "$SCHEME" == *"Expo"* ]]; then
+            echo "⚠️  WARNING: Discovered scheme appears to be a Pod scheme, using 'WorkoutTracker' instead"
+            SCHEME="WorkoutTracker"
           fi
           
           echo ""
@@ -447,6 +466,29 @@ jobs:
           echo "Building with scheme: $SCHEME"
           echo "Using workspace: $WORKSPACE"
           
+          # Verify scheme is correct (not a Pod scheme)
+          if [[ "$SCHEME" == *"Pods"* ]] || [[ "$SCHEME" == *"EXConstants"* ]] || [[ "$SCHEME" == *"Expo"* ]]; then
+            echo "⚠️  WARNING: Scheme appears to be a Pod scheme, not the app scheme!"
+            echo "Forcing scheme to 'WorkoutTracker'"
+            SCHEME="WorkoutTracker"
+          fi
+          
+          # Verify scheme exists and lists app target
+          echo ""
+          echo "Verifying scheme '$SCHEME' includes app target..."
+          if [[ "$WORKSPACE" == *.xcworkspace ]]; then
+            SCHEME_INFO=$(xcodebuild -list -workspace "$WORKSPACE" 2>/dev/null || echo "")
+          else
+            SCHEME_INFO=$(xcodebuild -list -project "${WORKSPACE%.xcworkspace}.xcodeproj" 2>/dev/null || echo "")
+          fi
+          
+          if echo "$SCHEME_INFO" | grep -q "Scheme: $SCHEME"; then
+            echo "✅ Scheme '$SCHEME' found"
+          else
+            echo "⚠️  Scheme '$SCHEME' not found in project, using 'WorkoutTracker'"
+            SCHEME="WorkoutTracker"
+          fi
+          
           # Determine SDK path
           SDK_PATH=$(xcrun --show-sdk-path --sdk iphoneos)
           echo "Using SDK: $SDK_PATH"
@@ -454,7 +496,8 @@ jobs:
           xcodebuild -version
           
           # Step 1: Archive the app (archive always builds the app target, not just Pods)
-          echo "Step 1: Archiving app (this ensures app target is built, not just Pods)..."
+          echo ""
+          echo "Step 1: Archiving app with scheme '$SCHEME'..."
           BUILD_SUCCESS=false
           BUILD_LOG="build.log"
           ARCHIVE_PATH="ios/build/WorkoutTracker.xcarchive"
@@ -495,12 +538,20 @@ jobs:
             set -e
           fi
           
-          # Check if archive actually succeeded
+          # Check if archive actually succeeded AND that app target was built
           if [ "$BUILD_EXIT_CODE" -eq 0 ] && (grep -q "Archive Succeeded\|BUILD SUCCEEDED" "$BUILD_LOG"); then
             # Verify archive was created
             if [ -d "$ARCHIVE_PATH" ]; then
-              echo "✅ Archive succeeded and archive was created!"
-              BUILD_SUCCESS=true
+              # Check if app target was actually built (not just Pods)
+              if grep -qE "Building.*$SCHEME[^a-zA-Z]|Compiling.*$SCHEME[^a-zA-Z]|Linking.*$SCHEME[^a-zA-Z]|Touch.*$SCHEME\.app|Copying.*$SCHEME\.app" "$BUILD_LOG"; then
+                echo "✅ Archive succeeded and app target '$SCHEME' was built!"
+                BUILD_SUCCESS=true
+              else
+                echo "⚠️  Archive succeeded but app target '$SCHEME' may not have been built (only Pods?)"
+                echo "Checking build log for app target..."
+                grep -i "$SCHEME" "$BUILD_LOG" | grep -v "Pods\|EXConstants\|Expo" | tail -20 || echo "No app target found in log"
+                BUILD_SUCCESS=false
+              fi
             else
               echo "⚠️  Archive command succeeded but archive not found at $ARCHIVE_PATH"
               BUILD_SUCCESS=false
