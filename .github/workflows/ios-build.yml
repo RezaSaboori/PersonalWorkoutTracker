@@ -309,10 +309,10 @@ jobs:
           fi
           cd ..
       
-      - name: Discover scheme name
+      - name: Discover scheme name and target
         id: scheme
         run: |
-          echo "=== Discovering Scheme Name ==="
+          echo "=== Discovering Scheme Name and Target ==="
           # Try to find workspace first
           WORKSPACE=$(find ios -name "*.xcworkspace" -type d | head -n 1)
           if [ -z "$WORKSPACE" ]; then
@@ -324,9 +324,13 @@ jobs:
             fi
             echo "Found project: $PROJECT"
             SCHEME=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+            # Get targets
+            TARGETS=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Targets:" | grep -v "Targets:" | head -20)
           else
             echo "Found workspace: $WORKSPACE"
             SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+            # Get targets from workspace
+            TARGETS=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Targets:" | grep -v "Targets:" | head -20)
           fi
           
           if [ -z "$SCHEME" ]; then
@@ -335,6 +339,25 @@ jobs:
             echo "Using default scheme: $SCHEME"
           else
             echo "Discovered scheme: $SCHEME"
+          fi
+          
+          echo ""
+          echo "Available targets:"
+          echo "$TARGETS"
+          echo ""
+          
+          # Find the app target (not Pods)
+          APP_TARGET=$(echo "$TARGETS" | grep -v "Pods\|Tests\|Spec" | grep -i "workout\|app" | head -n 1 | xargs)
+          if [ -z "$APP_TARGET" ]; then
+            # Try to find any target that's not a Pod
+            APP_TARGET=$(echo "$TARGETS" | grep -v "Pods\|Tests\|Spec" | head -n 1 | xargs)
+          fi
+          
+          if [ -n "$APP_TARGET" ]; then
+            echo "App target found: $APP_TARGET"
+            echo "target=$APP_TARGET" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Could not determine app target, will use scheme: $SCHEME"
           fi
           
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
@@ -467,15 +490,25 @@ jobs:
           fi
           
           # Check if build actually succeeded AND that the app was built
-          if [ "$BUILD_EXIT_CODE" -eq 0 ] && grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
+          if [ "$BUILD_EXIT_CODE" -eq 0 ] && grep -q "BUILD SUCCEEDED\|Archive Succeeded" "$BUILD_LOG"; then
             # Verify the app target was actually built (not just Pods)
-            if grep -q "Building.*$SCHEME\|Compiling.*$SCHEME\|Linking.*$SCHEME\|Touch.*$SCHEME.app\|Copying.*$SCHEME.app" "$BUILD_LOG"; then
-              echo "✅ Build succeeded and app target was built!"
+            # Archive always builds the app target, so check for archive success
+            if grep -q "Archive Succeeded\|Touch.*$SCHEME\.app\|Copying.*$SCHEME\.app" "$BUILD_LOG"; then
+              echo "✅ Archive succeeded and app target was built!"
               BUILD_SUCCESS=true
+            elif grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
+              # Check if app target appears (not just Pods)
+              if grep -qE "Building.*$SCHEME[^a-zA-Z]|Compiling.*$SCHEME[^a-zA-Z]|Linking.*$SCHEME[^a-zA-Z]|Touch.*$SCHEME\.app|Copying.*$SCHEME\.app" "$BUILD_LOG"; then
+                echo "✅ Build succeeded and app target was built!"
+                BUILD_SUCCESS=true
+              else
+                echo "⚠️  BUILD SUCCEEDED but app target may not have been built (only Pods?)"
+                echo "Checking build log for app target (excluding Pods)..."
+                grep -i "$SCHEME" "$BUILD_LOG" | grep -v "Pods\|EXConstants\|hermes" | tail -20 || echo "No app target found in log"
+                BUILD_SUCCESS=false
+              fi
             else
-              echo "⚠️  BUILD SUCCEEDED but app target may not have been built (only Pods?)"
-              echo "Checking build log for app target..."
-              grep -i "$SCHEME" "$BUILD_LOG" | tail -20 || echo "No app target found in log"
+              echo "⚠️  Build completed but no success message found"
               BUILD_SUCCESS=false
             fi
           else
@@ -648,12 +681,12 @@ jobs:
               }
           fi
           
-          echo "=== Archive Created ==="
+          echo "=== Archive Verification ==="
           echo "Archive contents:"
-          ls -la build/WorkoutTracker.xcarchive/ || true
+          ls -la "$ARCHIVE_PATH/" || true
           
           # Verify archive contains app bundle
-          ARCHIVE_APP_BUNDLE=$(find build/WorkoutTracker.xcarchive -name "*.app" -type d | head -n 1)
+          ARCHIVE_APP_BUNDLE=$(find "$ARCHIVE_PATH" -name "*.app" -type d | head -n 1)
           if [ -z "$ARCHIVE_APP_BUNDLE" ]; then
             echo "❌ ERROR: No app bundle found in archive!"
             echo "Checking archive structure:"
@@ -674,7 +707,7 @@ jobs:
           set -e  # Exit on error
           echo "=== Starting IPA Export ==="
           
-          ARCHIVE_PATH="build/WorkoutTracker.xcarchive"
+          ARCHIVE_PATH="ios/build/WorkoutTracker.xcarchive"
           
           # Verify archive exists
           if [ ! -d "$ARCHIVE_PATH" ]; then
