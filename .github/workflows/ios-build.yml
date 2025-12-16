@@ -45,75 +45,88 @@ jobs:
           # Create backup
           cp Podfile Podfile.backup
           
-          # Check if post_install already exists and remove it
+          # Check if post_install already exists
           if grep -q "post_install" Podfile; then
-            echo "⚠️  post_install block already exists, removing it..."
-            # Use Python to remove post_install block more reliably
-            echo 'import re' > remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo 'with open("Podfile", "r") as f:' >> remove_post_install.py
-            echo '    lines = f.readlines()' >> remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo 'in_post_install = False' >> remove_post_install.py
-            echo 'end_count = 0' >> remove_post_install.py
-            echo 'result_lines = []' >> remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo 'for i, line in enumerate(lines):' >> remove_post_install.py
-            echo '    if re.search(r"post_install\s+do\s*\|", line):' >> remove_post_install.py
-            echo '        in_post_install = True' >> remove_post_install.py
-            echo '        end_count = 0' >> remove_post_install.py
-            echo '        continue' >> remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo '    if in_post_install:' >> remove_post_install.py
-            echo '        stripped = line.strip()' >> remove_post_install.py
-            echo '        if stripped == "end":' >> remove_post_install.py
-            echo '            end_count += 1' >> remove_post_install.py
-            echo '            if end_count == 1:' >> remove_post_install.py
-            echo '                in_post_install = False' >> remove_post_install.py
-            echo '                continue' >> remove_post_install.py
-            echo '        continue' >> remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo '    result_lines.append(line)' >> remove_post_install.py
-            echo '' >> remove_post_install.py
-            echo 'with open("Podfile", "w") as f:' >> remove_post_install.py
-            echo '    f.writelines(result_lines)' >> remove_post_install.py
-            python3 remove_post_install.py
-            rm remove_post_install.py
+            echo "⚠️  post_install block already exists (likely from Expo/Hermes)"
+            echo "Appending our fixes to existing post_install block..."
+            
+            # Use Python to insert our fixes before the final 'end' of post_install
+            echo 'import re' > modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo 'with open("Podfile", "r") as f:' >> modify_post_install.py
+            echo '    content = f.read()' >> modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo '# Find the post_install block and insert our fixes before the final end' >> modify_post_install.py
+            echo 'pattern = r"(post_install do \|installer\|.*?)(\nend\s*$)"' >> modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo '# Our fixes to insert' >> modify_post_install.py
+            echo 'fixes = """' >> modify_post_install.py
+            echo '  # Expo modules and Xcode 16.4 compatibility fixes' >> modify_post_install.py
+            echo '  installer.pods_project.targets.each do |target|' >> modify_post_install.py
+            echo '    target.build_configurations.each do |config|' >> modify_post_install.py
+            echo "      config.build_settings['SWIFT_VERSION'] = '5.0'" >> modify_post_install.py
+            echo "      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'" >> modify_post_install.py
+            echo "      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'" >> modify_post_install.py
+            echo "      deployment_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']" >> modify_post_install.py
+            echo '      if deployment_target.nil? || deployment_target.to_f < 18.5' >> modify_post_install.py
+            echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> modify_post_install.py
+            echo '      end' >> modify_post_install.py
+            echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'" >> modify_post_install.py
+            echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> modify_post_install.py
+            echo '    end' >> modify_post_install.py
+            echo '  end' >> modify_post_install.py
+            echo '"""' >> modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo 'def replace_post_install(match):' >> modify_post_install.py
+            echo '    return match.group(1) + fixes + match.group(2)' >> modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo 'if re.search(pattern, content, re.MULTILINE | re.DOTALL):' >> modify_post_install.py
+            echo '    content = re.sub(pattern, replace_post_install, content, flags=re.MULTILINE | re.DOTALL)' >> modify_post_install.py
+            echo '    with open("Podfile", "w") as f:' >> modify_post_install.py
+            echo '        f.write(content)' >> modify_post_install.py
+            echo '    print("✅ Added fixes to existing post_install block")' >> modify_post_install.py
+            echo 'else:' >> modify_post_install.py
+            echo '    print("⚠️  Could not find post_install block, appending new block")' >> modify_post_install.py
+            echo '    with open("Podfile", "a") as f:' >> modify_post_install.py
+            echo '        f.write("\\n# Post-install fixes\\n")' >> modify_post_install.py
+            echo '        f.write("post_install do |installer|\\n")' >> modify_post_install.py
+            echo '        f.write(fixes)' >> modify_post_install.py
+            echo '        f.write("end\\n")' >> modify_post_install.py
+            python3 modify_post_install.py
+            rm modify_post_install.py
+          else
+            echo "No existing post_install block found, creating new one..."
+            # Add Swift version and nullability fixes
+            echo '' >> Podfile
+            echo '# Post-install fixes for Expo modules and Xcode 16.4 compatibility' >> Podfile
+            echo 'post_install do |installer|' >> Podfile
+            echo '  installer.pods_project.targets.each do |target|' >> Podfile
+            echo '    target.build_configurations.each do |config|' >> Podfile
+            echo '      # Set Swift version to 5.0 (compatible with Xcode 16.4)' >> Podfile
+            echo "      config.build_settings['SWIFT_VERSION'] = '5.0'" >> Podfile
+            echo '      # Fix nullability warnings in Expo modules' >> Podfile
+            echo "      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'" >> Podfile
+            echo "      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'" >> Podfile
+            echo '      # Ensure proper deployment target' >> Podfile
+            echo '      deployment_target = config.build_settings['"'"'IPHONEOS_DEPLOYMENT_TARGET'"'"']' >> Podfile
+            echo '      if deployment_target.nil? || deployment_target.to_f < 18.5' >> Podfile
+            echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> Podfile
+            echo '      end' >> Podfile
+            echo '      # Fix for Objective-C++ compilation' >> Podfile
+            echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'" >> Podfile
+            echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> Podfile
+            echo '    end' >> Podfile
+            echo '  end' >> Podfile
+            echo 'end' >> Podfile
           fi
           
-          # Validate Podfile syntax before proceeding
+          # Validate Podfile syntax
           echo "Validating Podfile syntax..."
           if ! ruby -c Podfile 2>/dev/null; then
             echo "⚠️  Podfile syntax check failed, but continuing..."
           else
             echo "✅ Podfile syntax is valid"
           fi
-          
-          # Add Swift version and nullability fixes
-          echo '' >> Podfile
-          echo '# Post-install fixes for Expo modules and Xcode 16.4 compatibility' >> Podfile
-          echo 'post_install do |installer|' >> Podfile
-          echo '  installer.pods_project.targets.each do |target|' >> Podfile
-          echo '    target.build_configurations.each do |config|' >> Podfile
-          echo '      # Set Swift version to 5.0 (compatible with Xcode 16.4)' >> Podfile
-          echo "      config.build_settings['SWIFT_VERSION'] = '5.0'" >> Podfile
-          echo '' >> Podfile
-          echo '      # Fix nullability warnings in Expo modules' >> Podfile
-          echo "      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'" >> Podfile
-          echo "      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'" >> Podfile
-          echo '' >> Podfile
-          echo '      # Ensure proper deployment target' >> Podfile
-          echo '      deployment_target = config.build_settings['"'"'IPHONEOS_DEPLOYMENT_TARGET'"'"']' >> Podfile
-          echo '      if deployment_target.nil? || deployment_target.to_f < 18.5' >> Podfile
-          echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> Podfile
-          echo '      end' >> Podfile
-          echo '' >> Podfile
-          echo '      # Fix for Objective-C++ compilation' >> Podfile
-          echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'" >> Podfile
-          echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> Podfile
-          echo '    end' >> Podfile
-          echo '  end' >> Podfile
-          echo 'end' >> Podfile
           
           # Validate Podfile syntax after modification
           echo ""
