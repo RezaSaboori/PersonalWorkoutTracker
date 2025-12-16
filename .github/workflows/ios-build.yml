@@ -212,6 +212,28 @@ jobs:
           }
           
           echo "✅ CocoaPods installed successfully"
+          
+          # Verify codegen files were generated
+          echo ""
+          echo "=== Verifying Codegen files after pod install ==="
+          if [ -d "build/generated/ios" ]; then
+            echo "✅ Codegen directory exists"
+            GENERATED_COUNT=$(find build/generated/ios -name "*-generated.*" 2>/dev/null | wc -l | xargs)
+            echo "Found $GENERATED_COUNT generated files"
+            if [ "$GENERATED_COUNT" -eq 0 ]; then
+              echo "⚠️  WARNING: No codegen files found! This may cause build failures."
+              echo "Listing build/generated/ios contents:"
+              ls -la build/generated/ios/ || echo "Directory is empty or doesn't exist"
+            else
+              echo "Sample generated files:"
+              find build/generated/ios -name "*-generated.*" | head -10
+            fi
+          else
+            echo "❌ ERROR: Codegen directory not found after pod install!"
+            echo "This will cause build failures. Checking if build directory exists:"
+            ls -la build/ 2>/dev/null || echo "build/ directory doesn't exist"
+          fi
+          
           cd ..
       
       - name: Setup Xcode
@@ -238,6 +260,51 @@ jobs:
           ls -la ios/ || echo "ios/ directory not found"
           ls -la ios/*.xcworkspace 2>/dev/null || echo "No .xcworkspace found"
           ls -la ios/*.xcodeproj 2>/dev/null || echo "No .xcodeproj found"
+      
+      - name: Verify Codegen files exist
+        run: |
+          echo "=== Verifying Codegen files before build ==="
+          cd ios
+          
+          # Check if codegen files were generated
+          if [ -d "build/generated/ios" ]; then
+            echo "✅ Codegen directory exists"
+            GENERATED_COUNT=$(find build/generated/ios -name "*-generated.*" 2>/dev/null | wc -l | xargs)
+            echo "Found $GENERATED_COUNT generated files"
+            
+            echo ""
+            echo "Checking for specific required files:"
+            REQUIRED_FILES=(
+              "build/generated/ios/safeareacontextJSI-generated.cpp"
+              "build/generated/ios/safeareacontext/safeareacontext-generated.mm"
+              "build/generated/ios/rnworkletsJSI-generated.cpp"
+              "build/generated/ios/rnworklets/rnworklets-generated.mm"
+              "build/generated/ios/rnsvgJSI-generated.cpp"
+            )
+            MISSING_COUNT=0
+            for file in "${REQUIRED_FILES[@]}"; do
+              if [ -f "$file" ]; then
+                echo "✅ $file exists"
+              else
+                echo "❌ $file MISSING"
+                MISSING_COUNT=$((MISSING_COUNT + 1))
+              fi
+            done
+            
+            if [ "$MISSING_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️  WARNING: $MISSING_COUNT required codegen files are missing!"
+              echo "This may cause build failures. Listing all generated files:"
+              find build/generated/ios -name "*-generated.*" | head -20
+            fi
+          else
+            echo "❌ ERROR: Codegen directory not found!"
+            echo "This will cause build failures."
+            echo "Checking if build directory exists:"
+            ls -la build/ 2>/dev/null || echo "build/ directory doesn't exist"
+            exit 1
+          fi
+          cd ..
       
       - name: Discover scheme name
         id: scheme
@@ -270,13 +337,62 @@ jobs:
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
           echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
       
-      - name: Clean Xcode build folder
+      - name: Verify Codegen files exist
         run: |
-          echo "=== Cleaning Xcode build folder ==="
+          echo "=== Verifying Codegen files ==="
           cd ios
+          
+          # Check if codegen files were generated
+          if [ -d "build/generated/ios" ]; then
+            echo "✅ Codegen directory exists"
+            echo "Codegen files found:"
+            find build/generated/ios -name "*-generated.*" | head -20 || echo "No generated files found"
+            echo ""
+            echo "Checking for specific required files:"
+            REQUIRED_FILES=(
+              "build/generated/ios/safeareacontextJSI-generated.cpp"
+              "build/generated/ios/safeareacontext/safeareacontext-generated.mm"
+              "build/generated/ios/rnworkletsJSI-generated.cpp"
+              "build/generated/ios/rnworklets/rnworklets-generated.mm"
+              "build/generated/ios/rnsvgJSI-generated.cpp"
+            )
+            for file in "${REQUIRED_FILES[@]}"; do
+              if [ -f "$file" ]; then
+                echo "✅ $file exists"
+              else
+                echo "❌ $file MISSING"
+              fi
+            done
+          else
+            echo "❌ Codegen directory not found!"
+            echo "Running codegen manually..."
+            # Try to run codegen manually
+            cd ..
+            npx react-native codegen --path ios || echo "Manual codegen failed, continuing..."
+            cd ios
+          fi
+          cd ..
+      
+      - name: Clean Xcode build folder (preserve codegen)
+        run: |
+          echo "=== Cleaning Xcode build folder (preserving codegen) ==="
+          cd ios
+          # Only clean build artifacts, not codegen files
           if [ -d "build" ]; then
-            rm -rf build
-            echo "✅ Removed ios/build directory"
+            # Preserve generated codegen files
+            if [ -d "build/generated" ]; then
+              echo "Preserving codegen files..."
+              mkdir -p /tmp/codegen_backup
+              cp -R build/generated /tmp/codegen_backup/ || true
+            fi
+            # Remove other build artifacts but keep generated folder
+            find build -mindepth 1 -maxdepth 1 ! -name "generated" -exec rm -rf {} + || true
+            # Restore codegen if it was backed up
+            if [ -d "/tmp/codegen_backup/generated" ]; then
+              cp -R /tmp/codegen_backup/generated build/ || true
+              rm -rf /tmp/codegen_backup
+            fi
+            echo "✅ Cleaned build artifacts (preserved codegen)"
           fi
           # Clean derived data
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
