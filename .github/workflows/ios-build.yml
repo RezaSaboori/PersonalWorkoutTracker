@@ -463,10 +463,18 @@ jobs:
             set -e
           fi
           
-          # Check if build actually succeeded
+          # Check if build actually succeeded AND that the app was built
           if [ "$BUILD_EXIT_CODE" -eq 0 ] && grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
-            echo "✅ Build succeeded!"
-            BUILD_SUCCESS=true
+            # Verify the app target was actually built (not just Pods)
+            if grep -q "Building.*$SCHEME\|Compiling.*$SCHEME\|Linking.*$SCHEME\|Touch.*$SCHEME.app\|Copying.*$SCHEME.app" "$BUILD_LOG"; then
+              echo "✅ Build succeeded and app target was built!"
+              BUILD_SUCCESS=true
+            else
+              echo "⚠️  BUILD SUCCEEDED but app target may not have been built (only Pods?)"
+              echo "Checking build log for app target..."
+              grep -i "$SCHEME" "$BUILD_LOG" | tail -20 || echo "No app target found in log"
+              BUILD_SUCCESS=false
+            fi
           else
             echo "❌ Build failed (exit code: $BUILD_EXIT_CODE)"
             BUILD_SUCCESS=false
@@ -511,11 +519,44 @@ jobs:
           # Step 2: Verify app bundle was created in derived data
           echo ""
           echo "Step 2: Verifying app bundle was created..."
+          
+          # Search in multiple locations
           APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          
+          # Also check in build directory
           if [ -z "$APP_BUNDLE" ]; then
-            echo "❌ ERROR: App bundle not found in derived data!"
-            echo "Searching for any .app files:"
-            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | head -10
+            APP_BUNDLE=$(find ios/build -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          # Also check in Products directory
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/*/${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "❌ ERROR: App bundle not found!"
+            echo ""
+            echo "Searching for any .app files in derived data:"
+            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | head -10 || echo "No .app files found"
+            echo ""
+            echo "Searching in ios/build:"
+            find ios/build -name "*.app" -type d 2>/dev/null | head -10 || echo "No .app files found in ios/build"
+            echo ""
+            echo "Build log analysis:"
+            echo "Checking if app target was built..."
+            if grep -q "Building.*$SCHEME\|Compiling.*$SCHEME\|Linking.*$SCHEME" "$BUILD_LOG"; then
+              echo "✅ App target appears in build log"
+            else
+              echo "❌ App target NOT found in build log - only Pods were built!"
+              echo ""
+              echo "This means the scheme '$SCHEME' may not be configured correctly."
+              echo "Available targets in workspace:"
+              if [[ "$WORKSPACE" == *.xcworkspace ]]; then
+                xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null || true
+              else
+                xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" -list 2>/dev/null || true
+              fi
+            fi
             echo ""
             echo "Build log shows BUILD SUCCEEDED but app bundle missing - this indicates a build configuration issue"
             exit 1
