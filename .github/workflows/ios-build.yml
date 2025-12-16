@@ -50,48 +50,71 @@ jobs:
             echo "⚠️  post_install block already exists (likely from Expo/Hermes)"
             echo "Appending our fixes to existing post_install block..."
             
-            # Use Python to insert our fixes before the final 'end' of post_install
+            # Use Python to insert our fixes INSIDE the post_install block before the final 'end'
             echo 'import re' > modify_post_install.py
             echo '' >> modify_post_install.py
             echo 'with open("Podfile", "r") as f:' >> modify_post_install.py
-            echo '    content = f.read()' >> modify_post_install.py
+            echo '    lines = f.readlines()' >> modify_post_install.py
             echo '' >> modify_post_install.py
-            echo '# Find the post_install block and insert our fixes before the final end' >> modify_post_install.py
-            echo 'pattern = r"(post_install do \|installer\|.*?)(\nend\s*$)"' >> modify_post_install.py
+            echo 'in_post_install = False' >> modify_post_install.py
+            echo 'end_count = 0' >> modify_post_install.py
+            echo 'result_lines = []' >> modify_post_install.py
+            echo 'inserted = False' >> modify_post_install.py
             echo '' >> modify_post_install.py
-            echo '# Our fixes to insert' >> modify_post_install.py
-            echo 'fixes = """' >> modify_post_install.py
-            echo '  # Expo modules and Xcode 16.4 compatibility fixes' >> modify_post_install.py
-            echo '  installer.pods_project.targets.each do |target|' >> modify_post_install.py
-            echo '    target.build_configurations.each do |config|' >> modify_post_install.py
-            echo "      config.build_settings['SWIFT_VERSION'] = '5.0'" >> modify_post_install.py
-            echo "      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'" >> modify_post_install.py
-            echo "      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'" >> modify_post_install.py
-            echo "      deployment_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']" >> modify_post_install.py
-            echo '      if deployment_target.nil? || deployment_target.to_f < 18.5' >> modify_post_install.py
-            echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> modify_post_install.py
-            echo '      end' >> modify_post_install.py
-            echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'" >> modify_post_install.py
-            echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> modify_post_install.py
-            echo '    end' >> modify_post_install.py
-            echo '  end' >> modify_post_install.py
-            echo '"""' >> modify_post_install.py
+            echo 'for i, line in enumerate(lines):' >> modify_post_install.py
+            echo '    if re.search(r"post_install\s+do\s*\|", line):' >> modify_post_install.py
+            echo '        in_post_install = True' >> modify_post_install.py
+            echo '        end_count = 0' >> modify_post_install.py
+            echo '        result_lines.append(line)' >> modify_post_install.py
+            echo '        continue' >> modify_post_install.py
             echo '' >> modify_post_install.py
-            echo 'def replace_post_install(match):' >> modify_post_install.py
-            echo '    return match.group(1) + fixes + match.group(2)' >> modify_post_install.py
+            echo '    if in_post_install:' >> modify_post_install.py
+            echo '        stripped = line.strip()' >> modify_post_install.py
+            echo '        if stripped == "end":' >> modify_post_install.py
+            echo '            end_count += 1' >> modify_post_install.py
+            echo '            if end_count == 1 and not inserted:' >> modify_post_install.py
+            echo '                result_lines.append("  # Expo modules and Xcode 16.4 compatibility fixes\n")' >> modify_post_install.py
+            echo '                result_lines.append("  installer.pods_project.targets.each do |target|\n")' >> modify_post_install.py
+            echo '                result_lines.append("    target.build_configurations.each do |config|\n")' >> modify_post_install.py
+            echo '                result_lines.append("      config.build_settings[\"SWIFT_VERSION\"] = \"5.0\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("      config.build_settings[\"GCC_WARN_INHIBIT_ALL_WARNINGS\"] = \"YES\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("      config.build_settings[\"CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER\"] = \"NO\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("      deployment_target = config.build_settings[\"IPHONEOS_DEPLOYMENT_TARGET\"]\n")' >> modify_post_install.py
+            echo '                result_lines.append("      if deployment_target.nil? || deployment_target.to_f < 18.5\n")' >> modify_post_install.py
+            echo '                result_lines.append("        config.build_settings[\"IPHONEOS_DEPLOYMENT_TARGET\"] = \"18.5\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("      end\n")' >> modify_post_install.py
+            echo '                result_lines.append("      config.build_settings[\"CLANG_CXX_LANGUAGE_STANDARD\"] = \"c++17\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("      config.build_settings[\"CLANG_CXX_LIBRARY\"] = \"libc++\"\n")' >> modify_post_install.py
+            echo '                result_lines.append("    end\n")' >> modify_post_install.py
+            echo '                result_lines.append("  end\n")' >> modify_post_install.py
+            echo '                inserted = True' >> modify_post_install.py
+            echo '            if end_count == 1:' >> modify_post_install.py
+            echo '                in_post_install = False' >> modify_post_install.py
+            echo '    result_lines.append(line)' >> modify_post_install.py
             echo '' >> modify_post_install.py
-            echo 'if re.search(pattern, content, re.MULTILINE | re.DOTALL):' >> modify_post_install.py
-            echo '    content = re.sub(pattern, replace_post_install, content, flags=re.MULTILINE | re.DOTALL)' >> modify_post_install.py
-            echo '    with open("Podfile", "w") as f:' >> modify_post_install.py
-            echo '        f.write(content)' >> modify_post_install.py
-            echo '    print("✅ Added fixes to existing post_install block")' >> modify_post_install.py
-            echo 'else:' >> modify_post_install.py
+            echo 'if not inserted:' >> modify_post_install.py
             echo '    print("⚠️  Could not find post_install block, appending new block")' >> modify_post_install.py
-            echo '    with open("Podfile", "a") as f:' >> modify_post_install.py
-            echo '        f.write("\\n# Post-install fixes\\n")' >> modify_post_install.py
-            echo '        f.write("post_install do |installer|\\n")' >> modify_post_install.py
-            echo '        f.write(fixes)' >> modify_post_install.py
-            echo '        f.write("end\\n")' >> modify_post_install.py
+            echo '    result_lines.append("\\n# Post-install fixes\\n")' >> modify_post_install.py
+            echo '    result_lines.append("post_install do |installer|\\n")' >> modify_post_install.py
+            echo '    result_lines.append("  installer.pods_project.targets.each do |target|\\n")' >> modify_post_install.py
+            echo '    result_lines.append("    target.build_configurations.each do |config|\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      config.build_settings[\\"SWIFT_VERSION\\"] = \\"5.0\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      config.build_settings[\\"GCC_WARN_INHIBIT_ALL_WARNINGS\\"] = \\"YES\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      config.build_settings[\\"CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER\\"] = \\"NO\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      deployment_target = config.build_settings[\\"IPHONEOS_DEPLOYMENT_TARGET\\"]\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      if deployment_target.nil? || deployment_target.to_f < 18.5\\n")' >> modify_post_install.py
+            echo '    result_lines.append("        config.build_settings[\\"IPHONEOS_DEPLOYMENT_TARGET\\"] = \\"18.5\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      end\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      config.build_settings[\\"CLANG_CXX_LANGUAGE_STANDARD\\"] = \\"c++17\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("      config.build_settings[\\"CLANG_CXX_LIBRARY\\"] = \\"libc++\\"\\n")' >> modify_post_install.py
+            echo '    result_lines.append("    end\\n")' >> modify_post_install.py
+            echo '    result_lines.append("  end\\n")' >> modify_post_install.py
+            echo '    result_lines.append("end\\n")' >> modify_post_install.py
+            echo 'else:' >> modify_post_install.py
+            echo '    print("✅ Added fixes to existing post_install block")' >> modify_post_install.py
+            echo '' >> modify_post_install.py
+            echo 'with open("Podfile", "w") as f:' >> modify_post_install.py
+            echo '    f.writelines(result_lines)' >> modify_post_install.py
             python3 modify_post_install.py
             rm modify_post_install.py
           else
