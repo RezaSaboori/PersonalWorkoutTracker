@@ -141,62 +141,91 @@ jobs:
           echo "=== Build Complete ==="
           ls -la build/
       
+      - name: Inspect Archive Structure
+        run: |
+          echo "=== Inspecting Archive Structure ==="
+          ARCHIVE_PATH="build/WorkoutTracker.xcarchive"
+          if [ -d "$ARCHIVE_PATH" ]; then
+            echo "Archive found at: $ARCHIVE_PATH"
+            echo "Contents:"
+            ls -la "$ARCHIVE_PATH" || true
+            echo ""
+            echo "Products directory:"
+            ls -la "$ARCHIVE_PATH/Products" || true
+            echo ""
+            echo "Applications directory:"
+            find "$ARCHIVE_PATH" -type d -name "Applications" -exec ls -la {} \; || true
+            echo ""
+            echo "App bundles:"
+            find "$ARCHIVE_PATH" -name "*.app" -type d || echo "No .app bundles found"
+          else
+            echo "ERROR: Archive not found!"
+            ls -la build/
+          fi
+      
       - name: Export IPA (Development for Free Apple ID)
         run: |
           set -e  # Exit on error
           echo "=== Starting IPA Export ==="
           
           # Check if archive exists
-          if [ ! -d "build/WorkoutTracker.xcarchive" ]; then
+          ARCHIVE_PATH="build/WorkoutTracker.xcarchive"
+          if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERROR: Archive not found!"
             ls -la build/
             exit 1
           fi
           
-          # For free Apple ID, try exporting without specifying method
-          # Xcode will auto-detect the appropriate method based on signing
+          # Find the app bundle in the archive
+          APP_BUNDLE=$(find "$ARCHIVE_PATH" -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "ERROR: No app bundle found in archive!"
+            echo "Archive structure:"
+            find "$ARCHIVE_PATH" -type f -o -type d | head -20
+            exit 1
+          fi
+          
+          echo "Found app bundle: $APP_BUNDLE"
+          
+          # Try export with development method first
           cat > exportOptions.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+            <key>method</key>
+            <string>development</string>
             <key>signingStyle</key>
             <string>automatic</string>
-            <key>teamID</key>
-            <string></string>
           </dict>
           </plist>
           EOF
           
-          # Try export - if it fails, try building IPA directly from archive
-          xcodebuild -exportArchive \
-            -archivePath build/WorkoutTracker.xcarchive \
+          # Try export - if it fails, create IPA manually
+          if xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
             -exportPath build \
-            -exportOptionsPlist exportOptions.plist || {
-            echo "Standard export failed, trying alternative method..."
-            # Alternative: Extract and repackage manually
-            ARCHIVE_PATH="build/WorkoutTracker.xcarchive"
-            APP_PATH="$ARCHIVE_PATH/Products/Applications/WorkoutTracker.app"
-            IPA_PATH="build/WorkoutTracker.ipa"
+            -exportOptionsPlist exportOptions.plist 2>&1; then
+            echo "Export succeeded via xcodebuild"
+          else
+            echo "xcodebuild export failed, creating IPA manually..."
+            # Extract app bundle name
+            APP_NAME=$(basename "$APP_BUNDLE" .app)
+            echo "App name: $APP_NAME"
             
-            if [ -d "$APP_PATH" ]; then
-              echo "Creating IPA manually from app bundle..."
-              mkdir -p build/Payload
-              cp -R "$APP_PATH" build/Payload/
-              cd build
-              zip -r WorkoutTracker.ipa Payload
-              cd ..
-              echo "IPA created manually"
-            else
-              echo "ERROR: App bundle not found in archive"
-              ls -la "$ARCHIVE_PATH/Products/Applications/" || true
-              exit 1
-            fi
-          }
+            # Create IPA manually
+            mkdir -p build/Payload
+            cp -R "$APP_BUNDLE" "build/Payload/$APP_NAME.app"
+            cd build
+            zip -r "${APP_NAME}.ipa" Payload
+            cd ..
+            rm -rf build/Payload
+            echo "IPA created manually: build/${APP_NAME}.ipa"
+          fi
           
           echo "=== Export Complete ==="
           ls -la build/
-          find build -name "*.ipa" || echo "WARNING: No IPA file found!"
+          find build -name "*.ipa" -type f || echo "WARNING: No IPA file found!"
       
       - name: Check for IPA file
         run: |

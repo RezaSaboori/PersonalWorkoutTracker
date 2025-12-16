@@ -41,12 +41,31 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       
+      - name: Configure EAS Credentials (if needed)
+        run: |
+          # Check if credentials exist
+          if ! eas credentials --platform ios --non-interactive 2>/dev/null; then
+            echo "Credentials not configured. You need to set them up locally first:"
+            echo "1. Run: eas credentials --platform ios"
+            echo "2. Choose: Let EAS handle credentials"
+            echo "3. Enter your free Apple ID"
+            echo "4. Then credentials will be stored on EAS servers"
+            echo ""
+            echo "For now, trying build anyway - EAS might prompt for credentials..."
+          fi
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        continue-on-error: true
+      
       - name: Build iOS with EAS
         run: |
           # Build for sideloading (works with free Apple ID)
+          # Note: Credentials must be set up first via: eas credentials --platform ios
           eas build --profile sideload --platform ios --non-interactive --no-wait
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       
       - name: Wait for build and download
         run: |
