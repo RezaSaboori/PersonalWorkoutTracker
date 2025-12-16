@@ -28,7 +28,19 @@ jobs:
       - name: Login to EAS
         run: |
           echo "Logging into EAS..."
-          eas login --non-interactive
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "ERROR: EXPO_TOKEN secret not set!"
+            echo "Go to: https://expo.dev/accounts/[your-account]/settings/access-tokens"
+            echo "Create a token and add it as EXPO_TOKEN secret in GitHub"
+            exit 1
+          fi
+          # EAS CLI uses EXPO_TOKEN environment variable automatically
+          eas whoami || {
+            echo "Not logged in, attempting login..."
+            # Try alternative login methods
+            export EXPO_TOKEN="$EXPO_TOKEN"
+            eas whoami
+          }
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       
