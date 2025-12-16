@@ -22,9 +22,20 @@ jobs:
       - name: Install dependencies
         run: npm install
       
+      - name: Check Expo compatibility
+        run: |
+          echo "=== Checking Expo compatibility ==="
+          npx expo-doctor || echo "⚠️  expo-doctor found issues (continuing anyway)"
+          echo ""
+          echo "Expo version:"
+          npx expo --version || true
+          echo ""
+          echo "React Native version:"
+          npm list react-native || true
+      
       - name: Update Expo packages
         run: |
-          echo "Updating Expo packages to ensure compatibility..."
+          echo "=== Updating Expo packages to ensure compatibility ==="
           npx expo install --fix
           npx expo install expo expo-modules-core
       
@@ -180,15 +191,25 @@ jobs:
           echo "=== Cleaning and installing CocoaPods ==="
           cd ios
           
-          # Clean previous builds
+          # Clean previous builds thoroughly
+          echo "Cleaning Pods..."
           rm -rf Pods Podfile.lock
+          rm -rf build
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          rm -rf ~/Library/Caches/CocoaPods
           
           # Update CocoaPods repo
+          echo "Updating CocoaPods repo..."
           pod repo update || true
           
-          # Install pods
-          pod install --repo-update
+          # Install pods with verbose output
+          echo "Installing pods..."
+          pod install --repo-update --verbose 2>&1 | tee pod_install.log || {
+            echo "❌ Pod install failed!"
+            echo "Last 100 lines of pod install log:"
+            tail -100 pod_install.log
+            exit 1
+          }
           
           echo "✅ CocoaPods installed successfully"
           cd ..
@@ -249,6 +270,19 @@ jobs:
           echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
           echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
       
+      - name: Clean Xcode build folder
+        run: |
+          echo "=== Cleaning Xcode build folder ==="
+          cd ios
+          if [ -d "build" ]; then
+            rm -rf build
+            echo "✅ Removed ios/build directory"
+          fi
+          # Clean derived data
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          echo "✅ Cleaned Xcode derived data"
+          cd ..
+      
       - name: Build iOS app
         run: |
           set -e  # Exit on error
@@ -274,6 +308,8 @@ jobs:
           # Determine SDK path
           SDK_PATH=$(xcrun --show-sdk-path --sdk iphoneos)
           echo "Using SDK: $SDK_PATH"
+          echo "Xcode version:"
+          xcodebuild -version
           
           # Build archive - use development signing for free Apple ID
           BUILD_SUCCESS=false
@@ -339,9 +375,25 @@ jobs:
           fi
           
           if [ "$BUILD_SUCCESS" = false ]; then
-            echo "ERROR: Build failed!"
-            echo "Last 100 lines of build log:"
-            tail -100 build.log || true
+            echo "❌ ERROR: Build failed!"
+            echo ""
+            echo "=== Build Log Analysis ==="
+            echo "Looking for actual error messages..."
+            echo ""
+            
+            # Show errors from build log
+            if [ -f build.log ]; then
+              echo "--- Errors found in build log ---"
+              grep -i "error:" build.log | tail -50 || echo "No 'error:' patterns found"
+              echo ""
+              echo "--- Warnings that might be relevant ---"
+              grep -i "warning:" build.log | grep -i "expo\|react-native\|pod" | tail -20 || echo "No relevant warnings found"
+              echo ""
+              echo "--- Last 200 lines of build log ---"
+              tail -200 build.log
+            else
+              echo "Build log file not found!"
+            fi
             exit 1
           fi
           
