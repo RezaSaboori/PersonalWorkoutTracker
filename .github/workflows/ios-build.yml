@@ -34,10 +34,13 @@ jobs:
           npm list react-native || true
       
       - name: Update Expo packages
+        continue-on-error: true
         run: |
           echo "=== Updating Expo packages to ensure compatibility ==="
-          npx expo install --fix
-          npx expo install expo expo-modules-core
+          echo "Note: This step will continue even if Expo servers are unavailable"
+          npx expo install --fix || echo "⚠️  expo install --fix failed (continuing anyway)"
+          npx expo install expo expo-modules-core || echo "⚠️  expo install failed (continuing anyway)"
+          echo "✅ Package update step completed (warnings are OK)"
       
       - name: Generate native project
         run: npx expo prebuild --platform ios --clean
