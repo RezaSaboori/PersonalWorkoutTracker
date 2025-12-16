@@ -48,19 +48,45 @@ jobs:
           # Check if post_install already exists and remove it
           if grep -q "post_install" Podfile; then
             echo "⚠️  post_install block already exists, removing it..."
-            # Use Python to remove post_install block (write script without heredoc to avoid YAML issues)
+            # Use Python to remove post_install block more reliably
             echo 'import re' > remove_post_install.py
             echo '' >> remove_post_install.py
             echo 'with open("Podfile", "r") as f:' >> remove_post_install.py
-            echo '    content = f.read()' >> remove_post_install.py
+            echo '    lines = f.readlines()' >> remove_post_install.py
             echo '' >> remove_post_install.py
-            echo 'pattern = r"post_install\s+do\s+\|installer\|.*?^end\s*$"' >> remove_post_install.py
-            echo 'content = re.sub(pattern, "", content, flags=re.MULTILINE | re.DOTALL)' >> remove_post_install.py
+            echo 'in_post_install = False' >> remove_post_install.py
+            echo 'end_count = 0' >> remove_post_install.py
+            echo 'result_lines = []' >> remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo 'for i, line in enumerate(lines):' >> remove_post_install.py
+            echo '    if re.search(r"post_install\s+do\s*\|", line):' >> remove_post_install.py
+            echo '        in_post_install = True' >> remove_post_install.py
+            echo '        end_count = 0' >> remove_post_install.py
+            echo '        continue' >> remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo '    if in_post_install:' >> remove_post_install.py
+            echo '        stripped = line.strip()' >> remove_post_install.py
+            echo '        if stripped == "end":' >> remove_post_install.py
+            echo '            end_count += 1' >> remove_post_install.py
+            echo '            if end_count == 1:' >> remove_post_install.py
+            echo '                in_post_install = False' >> remove_post_install.py
+            echo '                continue' >> remove_post_install.py
+            echo '        continue' >> remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo '    result_lines.append(line)' >> remove_post_install.py
             echo '' >> remove_post_install.py
             echo 'with open("Podfile", "w") as f:' >> remove_post_install.py
-            echo '    f.write(content)' >> remove_post_install.py
+            echo '    f.writelines(result_lines)' >> remove_post_install.py
             python3 remove_post_install.py
             rm remove_post_install.py
+          fi
+          
+          # Validate Podfile syntax before proceeding
+          echo "Validating Podfile syntax..."
+          if ! ruby -c Podfile 2>/dev/null; then
+            echo "⚠️  Podfile syntax check failed, but continuing..."
+          else
+            echo "✅ Podfile syntax is valid"
           fi
           
           # Add Swift version and nullability fixes
@@ -96,8 +122,20 @@ jobs:
           echo '  ) if defined?(react_native_post_install)' >> Podfile
           echo 'end' >> Podfile
           
-          echo "✅ Podfile updated with compatibility fixes"
+          # Validate Podfile syntax after modification
           echo ""
+          echo "Validating Podfile syntax after modification..."
+          if ruby -c Podfile; then
+            echo "✅ Podfile syntax is valid"
+          else
+            echo "❌ ERROR: Podfile syntax is invalid!"
+            echo "Podfile content (last 30 lines):"
+            tail -30 Podfile
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Podfile updated with compatibility fixes"
           echo "Added fixes:"
           echo "- Swift version 5.0"
           echo "- Nullability warning suppressions"
