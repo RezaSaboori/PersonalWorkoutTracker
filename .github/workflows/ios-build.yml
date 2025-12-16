@@ -520,48 +520,97 @@ jobs:
           echo ""
           echo "Step 2: Verifying app bundle was created..."
           
-          # Search in multiple locations
+          # Extract build output path from build log
+          echo "Extracting build output path from build log..."
+          BUILD_PRODUCTS_DIR=$(grep -o "BUILT_PRODUCTS_DIR=[^ ]*" "$BUILD_LOG" | head -1 | cut -d= -f2 | tr -d '"' || echo "")
+          TARGET_BUILD_DIR=$(grep -o "TARGET_BUILD_DIR=[^ ]*" "$BUILD_LOG" | head -1 | cut -d= -f2 | tr -d '"' || echo "")
+          
+          if [ -n "$BUILD_PRODUCTS_DIR" ]; then
+            echo "Found BUILT_PRODUCTS_DIR: $BUILD_PRODUCTS_DIR"
+          fi
+          if [ -n "$TARGET_BUILD_DIR" ]; then
+            echo "Found TARGET_BUILD_DIR: $TARGET_BUILD_DIR"
+          fi
+          
+          # Search in multiple locations with comprehensive patterns
+          echo ""
+          echo "Searching for app bundle..."
+          
+          # 1. Search by scheme name
           APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
           
-          # Also check in build directory
-          if [ -z "$APP_BUNDLE" ]; then
-            APP_BUNDLE=$(find ios/build -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          # 2. Search in explicit build products directories from log
+          if [ -z "$APP_BUNDLE" ] && [ -n "$BUILD_PRODUCTS_DIR" ]; then
+            APP_BUNDLE=$(find "$BUILD_PRODUCTS_DIR" -name "*.app" -type d 2>/dev/null | head -n 1)
           fi
           
-          # Also check in Products directory
-          if [ -z "$APP_BUNDLE" ]; then
-            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/*/${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          if [ -z "$APP_BUNDLE" ] && [ -n "$TARGET_BUILD_DIR" ]; then
+            APP_BUNDLE=$(find "$TARGET_BUILD_DIR" -name "*.app" -type d 2>/dev/null | head -n 1)
           fi
           
+          # 3. Search in Products directory with Release-iphoneos
           if [ -z "$APP_BUNDLE" ]; then
-            echo "❌ ERROR: App bundle not found!"
-            echo ""
-            echo "Searching for any .app files in derived data:"
-            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | head -10 || echo "No .app files found"
-            echo ""
-            echo "Searching in ios/build:"
-            find ios/build -name "*.app" -type d 2>/dev/null | head -10 || echo "No .app files found in ios/build"
-            echo ""
-            echo "Build log analysis:"
-            echo "Checking if app target was built..."
-            if grep -q "Building.*$SCHEME\|Compiling.*$SCHEME\|Linking.*$SCHEME" "$BUILD_LOG"; then
-              echo "✅ App target appears in build log"
-            else
-              echo "❌ App target NOT found in build log - only Pods were built!"
-              echo ""
-              echo "This means the scheme '$SCHEME' may not be configured correctly."
-              echo "Available targets in workspace:"
-              if [[ "$WORKSPACE" == *.xcworkspace ]]; then
-                xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null || true
-              else
-                xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" -list 2>/dev/null || true
+            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Release-iphoneos/*.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          # 4. Search in any Products directory
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/*/*.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          # 5. Search in ios/build directory
+          if [ -z "$APP_BUNDLE" ]; then
+            APP_BUNDLE=$(find ios/build -name "*.app" -type d 2>/dev/null | head -n 1)
+          fi
+          
+          # 6. Search for ANY .app file in derived data (might have different name)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Searching for any .app files in derived data..."
+            ALL_APP_FILES=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | grep -v "Pods\|\.framework" | head -5)
+            if [ -n "$ALL_APP_FILES" ]; then
+              echo "Found .app files (excluding Pods/frameworks):"
+              echo "$ALL_APP_FILES"
+              APP_BUNDLE=$(echo "$ALL_APP_FILES" | head -n 1)
+            fi
+          fi
+          
+          # 7. Check build log for actual output path
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Checking build log for app bundle output path..."
+            APP_OUTPUT=$(grep -i "touch.*\.app\|copy.*\.app\|built.*\.app" "$BUILD_LOG" | grep -v "Pods\|framework" | head -1 || echo "")
+            if [ -n "$APP_OUTPUT" ]; then
+              echo "Found app output reference in log: $APP_OUTPUT"
+              # Try to extract path
+              APP_PATH=$(echo "$APP_OUTPUT" | grep -o "/[^ ]*\.app" | head -1 || echo "")
+              if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
+                APP_BUNDLE="$APP_PATH"
               fi
             fi
+          fi
+          
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "❌ ERROR: App bundle not found after comprehensive search!"
             echo ""
-            echo "Build log shows BUILD SUCCEEDED but app bundle missing - this indicates a build configuration issue"
+            echo "=== Comprehensive Search Results ==="
+            echo ""
+            echo "1. All .app files in DerivedData (excluding Pods/frameworks):"
+            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | grep -v "Pods\|\.framework" | head -20 || echo "None found"
+            echo ""
+            echo "2. Build log references to .app files:"
+            grep -i "\.app" "$BUILD_LOG" | grep -v "Pods\|framework\|note:" | tail -20 || echo "None found"
+            echo ""
+            echo "3. Build output directories from log:"
+            grep -E "BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR|CONFIGURATION_BUILD_DIR" "$BUILD_LOG" | head -5 || echo "None found"
+            echo ""
+            echo "4. App target build phases from log:"
+            grep -i "touch\|copy\|built" "$BUILD_LOG" | grep -i "$SCHEME" | tail -10 || echo "None found"
+            echo ""
+            echo "Build log shows BUILD SUCCEEDED and app target was built, but app bundle is missing."
+            echo "This might indicate the app bundle is being created with a different name or in an unexpected location."
             exit 1
           else
             echo "✅ Found app bundle: $APP_BUNDLE"
+            echo "App bundle size: $(du -sh "$APP_BUNDLE" | cut -f1)"
           fi
           
           # Step 3: Create archive
