@@ -71,3 +71,4 @@ export function getDayName(date: Date): string {
   return format(date, 'EEEE');
 }
 
+
