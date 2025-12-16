@@ -104,8 +104,8 @@ jobs:
           echo '' >> Podfile
           echo '      # Ensure proper deployment target' >> Podfile
           echo '      deployment_target = config.build_settings['"'"'IPHONEOS_DEPLOYMENT_TARGET'"'"']' >> Podfile
-          echo '      if deployment_target.nil? || deployment_target.to_f < 26.0' >> Podfile
-          echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '26.0'" >> Podfile
+          echo '      if deployment_target.nil? || deployment_target.to_f < 18.5' >> Podfile
+          echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> Podfile
           echo '      end' >> Podfile
           echo '' >> Podfile
           echo '      # Fix for Objective-C++ compilation' >> Podfile
@@ -133,7 +133,7 @@ jobs:
           echo "- Swift version 5.0"
           echo "- Nullability warning suppressions"
           echo "- C++17 standard for Objective-C++"
-          echo "- iOS 26.0 deployment target"
+          echo "- iOS 18.5 deployment target"
           echo ""
           echo "Podfile preview (last 20 lines):"
           tail -20 Podfile

@@ -1,5 +1,5 @@
 // AppleAIModule.swift
-// Apple Intelligence API Integration for iOS 26+
+// Apple Intelligence API Integration for iOS 18.5+
 // Optimized for latest iOS versions with enhanced AI capabilities
 import ExpoModulesCore
 import Foundation
@@ -7,7 +7,7 @@ import CoreML
 import NaturalLanguage
 import AppIntents
 
-@available(iOS 26.0, *)
+@available(iOS 18.5, *)
 public class AppleAIModule: Module {
     public required init(appContext: AppContext) {
         super.init(appContext: appContext)
@@ -58,7 +58,7 @@ public class AppleAIModule: Module {
         }
         
         Function("isAvailable") { () -> Bool in
-            if #available(iOS 26.0, *) {
+            if #available(iOS 18.5, *) {
                 return self.isAppleIntelligenceAvailable()
             }
             return false
@@ -83,7 +83,7 @@ public class AppleAIModule: Module {
             do {
                 let config = MLModelConfiguration()
                 // Use Neural Engine for best performance on latest iOS
-                if #available(iOS 26.0, *) {
+                if #available(iOS 18.5, *) {
                     config.computeUnits = .cpuAndNeuralEngine
                 }
                 recommendationModel = try MLModel(contentsOf: modelURL, configuration: config)
@@ -100,7 +100,7 @@ public class AppleAIModule: Module {
             Bundle.main.url(forResource: "PatternAnalysis", withExtension: "mlmodel") {
             do {
                 let config = MLModelConfiguration()
-                if #available(iOS 26.0, *) {
+                if #available(iOS 18.5, *) {
                     config.computeUnits = .cpuAndNeuralEngine
                 }
                 patternAnalysisModel = try MLModel(contentsOf: modelURL, configuration: config)
@@ -117,7 +117,7 @@ public class AppleAIModule: Module {
             Bundle.main.url(forResource: "RecoveryPrediction", withExtension: "mlmodel") {
             do {
                 let config = MLModelConfiguration()
-                if #available(iOS 26.0, *) {
+                if #available(iOS 18.5, *) {
                     config.computeUnits = .cpuAndNeuralEngine
                 }
                 recoveryModel = try MLModel(contentsOf: modelURL, configuration: config)
@@ -130,14 +130,14 @@ public class AppleAIModule: Module {
     
     // MARK: - Apple Intelligence API Integration
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func isAppleIntelligenceAvailable() -> Bool {
         // Check if Apple Intelligence is available on this device
         // Enhanced check for latest iOS versions
         let config = MLModelConfiguration()
         
         // Prefer Neural Engine (ANE) for best performance
-        if #available(iOS 26.0, *) {
+        if #available(iOS 18.5, *) {
             // Check for Neural Engine availability
             if config.computeUnits == .all || config.computeUnits == .cpuAndNeuralEngine {
                 return true
@@ -150,7 +150,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Workout Recommendation Generation
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func generateRecommendation(data: String) async throws -> String {
         guard let jsonData = data.data(using: .utf8),
               let workoutData = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
@@ -186,7 +186,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Pattern Analysis
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func analyzePattern(workouts: String) async throws -> String {
         guard let jsonData = workouts.data(using: .utf8),
               let workoutsArray = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
@@ -202,7 +202,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Recovery Prediction
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func predictRecovery(data: String) async throws -> String {
         guard let jsonData = data.data(using: .utf8),
               let dataDict = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
@@ -232,7 +232,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Natural Language Processing
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func analyzeWithNaturalLanguage(
         workouts: [[String: Any]],
         personalRecords: [[String: Any]],
@@ -341,7 +341,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Core ML Enhancement
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func enhanceWithCoreML(
         recommendations: [[String: Any]],
         model: MLModel,
@@ -398,7 +398,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Pattern Analysis Implementation
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func performPatternAnalysis(workouts: [[String: Any]]) async -> [String: Any] {
         // Calculate trends
         var totalVolume: [Double] = []
@@ -459,7 +459,7 @@ public class AppleAIModule: Module {
     
     // MARK: - Recovery Calculation
     
-    @available(iOS 26.0, *)
+    @available(iOS 18.5, *)
     private func calculateRecoveryTime(
         recentWorkouts: [[String: Any]],
         lastWorkout: [String: Any]

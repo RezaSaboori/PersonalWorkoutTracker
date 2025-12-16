@@ -1,8 +1,8 @@
 # Podfile for Apple AI Module
-# Optimized for iOS 26+ with latest Apple Intelligence APIs
+# Optimized for iOS 18.5+ with latest Apple Intelligence APIs
 # This is automatically included by Expo when building
 
-platform :ios, '26.0'
+platform :ios, '18.5'
 
 target 'AppleAI' do
   use_frameworks!
