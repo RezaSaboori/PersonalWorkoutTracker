@@ -104,8 +104,8 @@ jobs:
           echo '' >> Podfile
           echo '      # Ensure proper deployment target' >> Podfile
           echo '      deployment_target = config.build_settings['"'"'IPHONEOS_DEPLOYMENT_TARGET'"'"']' >> Podfile
-          echo '      if deployment_target.nil? || deployment_target.to_f < 18.0' >> Podfile
-          echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'" >> Podfile
+          echo '      if deployment_target.nil? || deployment_target.to_f < 26.0' >> Podfile
+          echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '26.0'" >> Podfile
           echo '      end' >> Podfile
           echo '' >> Podfile
           echo '      # Fix for Objective-C++ compilation' >> Podfile
@@ -113,13 +113,6 @@ jobs:
           echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> Podfile
           echo '    end' >> Podfile
           echo '  end' >> Podfile
-          echo '' >> Podfile
-          echo '  # Apply React Native post-install fixes if available' >> Podfile
-          echo '  react_native_post_install(' >> Podfile
-          echo '    installer,' >> Podfile
-          echo '    config[:reactNativePath],' >> Podfile
-          echo '    :mac_catalyst_enabled => false' >> Podfile
-          echo '  ) if defined?(react_native_post_install)' >> Podfile
           echo 'end' >> Podfile
           
           # Validate Podfile syntax after modification
@@ -140,7 +133,7 @@ jobs:
           echo "- Swift version 5.0"
           echo "- Nullability warning suppressions"
           echo "- C++17 standard for Objective-C++"
-          echo "- iOS 18.0 deployment target"
+          echo "- iOS 26.0 deployment target"
           echo ""
           echo "Podfile preview (last 20 lines):"
           tail -20 Podfile
