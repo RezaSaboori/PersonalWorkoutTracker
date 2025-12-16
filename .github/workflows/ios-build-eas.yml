@@ -1,9 +1,13 @@
 name: Build iOS App with EAS (Recommended)
 
+# DISABLED: This workflow requires paid Apple Developer account or manual credential setup
+# Use ios-build.yml instead (Xcode build - works with free Apple ID)
+
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
+    # Disabled - use ios-build.yml instead
+  # push:
+  #   branches: [ main, master ]
 
 jobs:
   build-ios:
