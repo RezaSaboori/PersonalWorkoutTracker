@@ -48,20 +48,19 @@ jobs:
           # Check if post_install already exists and remove it
           if grep -q "post_install" Podfile; then
             echo "⚠️  post_install block already exists, removing it..."
-            # Use Python to remove post_install block (more reliable than sed)
-            python3 << 'EOF'
-import re
-
-with open('Podfile', 'r') as f:
-    content = f.read()
-
-# Remove post_install block (from post_install to matching end)
-pattern = r'post_install\s+do\s+\|installer\|.*?^end\s*$'
-content = re.sub(pattern, '', content, flags=re.MULTILINE | re.DOTALL)
-
-with open('Podfile', 'w') as f:
-    f.write(content)
-EOF
+            # Use Python to remove post_install block (write script without heredoc to avoid YAML issues)
+            echo 'import re' > remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo 'with open("Podfile", "r") as f:' >> remove_post_install.py
+            echo '    content = f.read()' >> remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo 'pattern = r"post_install\s+do\s+\|installer\|.*?^end\s*$"' >> remove_post_install.py
+            echo 'content = re.sub(pattern, "", content, flags=re.MULTILINE | re.DOTALL)' >> remove_post_install.py
+            echo '' >> remove_post_install.py
+            echo 'with open("Podfile", "w") as f:' >> remove_post_install.py
+            echo '    f.write(content)' >> remove_post_install.py
+            python3 remove_post_install.py
+            rm remove_post_install.py
           fi
           
           # Add Swift version and nullability fixes
