@@ -22,25 +22,22 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: Set up Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
       
-      - name: Login to EAS
+      - name: Verify EAS Authentication
         run: |
-          echo "Logging into EAS..."
           if [ -z "$EXPO_TOKEN" ]; then
             echo "ERROR: EXPO_TOKEN secret not set!"
             echo "Go to: https://expo.dev/accounts/[your-account]/settings/access-tokens"
             echo "Create a token and add it as EXPO_TOKEN secret in GitHub"
+            echo "Repository → Settings → Secrets and variables → Actions → New repository secret"
             exit 1
           fi
-          # EAS CLI uses EXPO_TOKEN environment variable automatically
-          eas whoami || {
-            echo "Not logged in, attempting login..."
-            # Try alternative login methods
-            export EXPO_TOKEN="$EXPO_TOKEN"
-            eas whoami
-          }
+          eas whoami
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       
@@ -48,6 +45,8 @@ jobs:
         run: |
           # Build for sideloading (works with free Apple ID)
           eas build --profile sideload --platform ios --non-interactive --no-wait
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       
       - name: Wait for build and download
         run: |
@@ -56,6 +55,8 @@ jobs:
           echo "Waiting for build $BUILD_ID..."
           eas build:wait --id $BUILD_ID
           eas build:download --id $BUILD_ID --output-dir ./build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
