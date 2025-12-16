@@ -22,13 +22,121 @@ jobs:
       - name: Install dependencies
         run: npm install
       
+      - name: Update Expo packages
+        run: |
+          echo "Updating Expo packages to ensure compatibility..."
+          npx expo install --fix
+          npx expo install expo expo-modules-core
+      
       - name: Generate native project
-        run: npx expo prebuild --platform ios
+        run: npx expo prebuild --platform ios --clean
+      
+      - name: Fix Podfile for Xcode 16.4 compatibility
+        run: |
+          echo "=== Fixing Podfile for Expo modules compatibility ==="
+          cd ios
+          
+          # Check if Podfile exists
+          if [ ! -f "Podfile" ]; then
+            echo "ERROR: Podfile not found after prebuild!"
+            exit 1
+          fi
+          
+          # Create backup
+          cp Podfile Podfile.backup
+          
+          # Check if post_install already exists and remove it
+          if grep -q "post_install" Podfile; then
+            echo "⚠️  post_install block already exists, removing it..."
+            # Use Python to remove post_install block (more reliable than sed)
+            python3 << 'PYTHON_SCRIPT'
+import re
+
+with open('Podfile', 'r') as f:
+    content = f.read()
+
+# Remove post_install block (from post_install to matching end)
+pattern = r'post_install\s+do\s+\|installer\|.*?^end\s*$'
+content = re.sub(pattern, '', content, flags=re.MULTILINE | re.DOTALL)
+
+with open('Podfile', 'w') as f:
+    f.write(content)
+PYTHON_SCRIPT
+          fi
+          
+          # Add Swift version and nullability fixes
+          cat >> Podfile << 'PODFILE_FIXES'
+
+# Post-install fixes for Expo modules and Xcode 16.4 compatibility
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      # Set Swift version to 5.0 (compatible with Xcode 16.4)
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+      
+      # Fix nullability warnings in Expo modules
+      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+      config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+      
+      # Ensure proper deployment target
+      deployment_target = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if deployment_target.nil? || deployment_target.to_f < 18.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+      end
+      
+      # Fix for Objective-C++ compilation
+      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+    end
+  end
+  
+  # Apply React Native post-install fixes if available
+  react_native_post_install(
+    installer,
+    config[:reactNativePath],
+    :mac_catalyst_enabled => false
+  ) if defined?(react_native_post_install)
+end
+PODFILE_FIXES
+          
+          echo "✅ Podfile updated with compatibility fixes"
+          echo ""
+          echo "Added fixes:"
+          echo "- Swift version 5.0"
+          echo "- Nullability warning suppressions"
+          echo "- C++17 standard for Objective-C++"
+          echo "- iOS 18.0 deployment target"
+          echo ""
+          echo "Podfile preview (last 20 lines):"
+          tail -20 Podfile
+          cd ..
+      
+      - name: Clean and install CocoaPods
+        run: |
+          echo "=== Cleaning and installing CocoaPods ==="
+          cd ios
+          
+          # Clean previous builds
+          rm -rf Pods Podfile.lock
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          
+          # Update CocoaPods repo
+          pod repo update || true
+          
+          # Install pods
+          pod install --repo-update
+          
+          echo "✅ CocoaPods installed successfully"
+          cd ..
       
       - name: Setup Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
+          echo ""
+          echo "Xcode SDK paths:"
+          xcrun --show-sdk-path --sdk iphoneos || true
+          xcrun --show-sdk-path --sdk iphonesimulator || true
       
       - name: Setup Xcode Signing (Free Apple ID)
         run: |
