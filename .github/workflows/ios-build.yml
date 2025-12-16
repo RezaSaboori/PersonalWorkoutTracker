@@ -36,21 +36,123 @@ jobs:
           # This requires manual setup in Xcode, but we'll try automatic
           echo "Setting up automatic code signing..."
       
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: List iOS project structure
+        run: |
+          echo "=== iOS Project Structure ==="
+          ls -la ios/ || echo "ios/ directory not found"
+          ls -la ios/*.xcworkspace 2>/dev/null || echo "No .xcworkspace found"
+          ls -la ios/*.xcodeproj 2>/dev/null || echo "No .xcodeproj found"
+      
+      - name: Discover scheme name
+        id: scheme
+        run: |
+          echo "=== Discovering Scheme Name ==="
+          # Try to find workspace first
+          WORKSPACE=$(find ios -name "*.xcworkspace" -type d | head -n 1)
+          if [ -z "$WORKSPACE" ]; then
+            # Fall back to xcodeproj
+            PROJECT=$(find ios -name "*.xcodeproj" -type d | head -n 1)
+            if [ -z "$PROJECT" ]; then
+              echo "ERROR: No workspace or project found!"
+              exit 1
+            fi
+            echo "Found project: $PROJECT"
+            SCHEME=$(xcodebuild -list -project "$PROJECT" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+          else
+            echo "Found workspace: $WORKSPACE"
+            SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 100 "Schemes:" | grep -v "Schemes:" | head -n 1 | xargs)
+          fi
+          
+          if [ -z "$SCHEME" ]; then
+            # Default to app name from app.json
+            SCHEME="WorkoutTracker"
+            echo "Using default scheme: $SCHEME"
+          else
+            echo "Discovered scheme: $SCHEME"
+          fi
+          
+          echo "scheme=$SCHEME" >> $GITHUB_OUTPUT
+          echo "workspace=$WORKSPACE" >> $GITHUB_OUTPUT
+      
       - name: Build iOS app
         run: |
-          # Build with automatic code signing
-          # Note: This will prompt for Apple ID in Xcode, but we'll use command line
-          xcodebuild -workspace ios/WorkoutTracker.xcworkspace \
-            -scheme WorkoutTracker \
-            -configuration Release \
-            -archivePath build/WorkoutTracker.xcarchive \
-            -allowProvisioningUpdates \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            CODE_SIGN_STYLE="Automatic" \
-            archive || echo "Build may need manual signing in Xcode"
+          set -e  # Exit on error
+          echo "=== Starting iOS Build ==="
+          
+          SCHEME="${{ steps.scheme.outputs.scheme }}"
+          WORKSPACE="${{ steps.scheme.outputs.workspace }}"
+          
+          if [ -z "$WORKSPACE" ]; then
+            WORKSPACE="ios/WorkoutTracker.xcworkspace"
+          fi
+          
+          # Check if workspace exists
+          if [ ! -d "$WORKSPACE" ] && [ ! -d "${WORKSPACE%.xcworkspace}.xcodeproj" ]; then
+            echo "ERROR: Workspace/Project not found: $WORKSPACE"
+            ls -la ios/
+            exit 1
+          fi
+          
+          echo "Building with scheme: $SCHEME"
+          echo "Using workspace: $WORKSPACE"
+          
+          # Build archive - try with automatic signing first
+          if [[ "$WORKSPACE" == *.xcworkspace ]]; then
+            xcodebuild -workspace "$WORKSPACE" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -archivePath build/WorkoutTracker.xcarchive \
+              -allowProvisioningUpdates \
+              CODE_SIGN_IDENTITY="Apple Development" \
+              CODE_SIGN_STYLE="Automatic" \
+              archive || {
+                echo "Build with automatic signing failed, trying without signing..."
+                xcodebuild -workspace "$WORKSPACE" \
+                  -scheme "$SCHEME" \
+                  -configuration Release \
+                  -archivePath build/WorkoutTracker.xcarchive \
+                  CODE_SIGN_IDENTITY="" \
+                  CODE_SIGNING_ALLOWED=NO \
+                  archive
+              }
+          else
+            xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -archivePath build/WorkoutTracker.xcarchive \
+              -allowProvisioningUpdates \
+              CODE_SIGN_IDENTITY="Apple Development" \
+              CODE_SIGN_STYLE="Automatic" \
+              archive || {
+                echo "Build with automatic signing failed, trying without signing..."
+                xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+                  -scheme "$SCHEME" \
+                  -configuration Release \
+                  -archivePath build/WorkoutTracker.xcarchive \
+                  CODE_SIGN_IDENTITY="" \
+                  CODE_SIGNING_ALLOWED=NO \
+                  archive
+              }
+          fi
+          
+          echo "=== Build Complete ==="
+          ls -la build/
       
       - name: Export IPA (Ad-Hoc for Free Apple ID)
         run: |
+          set -e  # Exit on error
+          echo "=== Starting IPA Export ==="
+          
+          # Check if archive exists
+          if [ ! -d "build/WorkoutTracker.xcarchive" ]; then
+            echo "ERROR: Archive not found!"
+            ls -la build/
+            exit 1
+          fi
+          
           # Create export options for ad-hoc distribution (works with free Apple ID)
           cat > exportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -65,17 +167,31 @@ jobs:
           </plist>
           EOF
           
-          # Try to export - may need manual intervention
+          # Export IPA
           xcodebuild -exportArchive \
             -archivePath build/WorkoutTracker.xcarchive \
             -exportPath build \
-            -exportOptionsPlist exportOptions.plist || echo "Export may need manual signing"
+            -exportOptionsPlist exportOptions.plist
+          
+          echo "=== Export Complete ==="
+          ls -la build/
+          find build -name "*.ipa" || echo "WARNING: No IPA file found!"
+      
+      - name: Check for IPA file
+        run: |
+          echo "=== Checking for IPA files ==="
+          find build -name "*.ipa" -type f || echo "No IPA files found in build/"
+          ls -la build/ || echo "build/ directory doesn't exist"
       
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
+        if: always()  # Upload even if previous steps failed
         with:
           name: ios-build
-          path: build/*.ipa
+          path: |
+            build/*.ipa
+            build/*.xcarchive
+          if-no-files-found: warn
       
       - name: Upload IPA to release
         if: startsWith(github.ref, 'refs/tags/')
