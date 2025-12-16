@@ -453,66 +453,60 @@ jobs:
           echo "Xcode version:"
           xcodebuild -version
           
-          # Step 1: Build the app first (not archive) to verify compilation succeeds
-          echo "Step 1: Building app to verify compilation..."
+          # Step 1: Archive the app (archive always builds the app target, not just Pods)
+          echo "Step 1: Archiving app (this ensures app target is built, not just Pods)..."
           BUILD_SUCCESS=false
           BUILD_LOG="build.log"
+          ARCHIVE_PATH="ios/build/WorkoutTracker.xcarchive"
           
-          # Build with better error capture
+          # Create build directory
+          mkdir -p ios/build
+          
+          # Archive with better error capture - archive always builds the app target
           if [[ "$WORKSPACE" == *.xcworkspace ]]; then
-            echo "Building with workspace..."
+            echo "Archiving with workspace..."
             set +e  # Don't exit on error, we'll check manually
             xcodebuild -workspace "$WORKSPACE" \
               -scheme "$SCHEME" \
               -configuration Release \
               -sdk iphoneos \
               -destination "generic/platform=iOS" \
-              -allowProvisioningUpdates \
-              DEVELOPMENT_TEAM="" \
+              -archivePath "$ARCHIVE_PATH" \
               CODE_SIGN_IDENTITY="" \
               CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$BUILD_LOG"
+              ONLY_ACTIVE_ARCH=NO \
+              archive 2>&1 | tee "$BUILD_LOG"
             BUILD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
           else
-            echo "Building with project..."
+            echo "Archiving with project..."
             set +e
             xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
               -scheme "$SCHEME" \
               -configuration Release \
               -sdk iphoneos \
               -destination "generic/platform=iOS" \
+              -archivePath "$ARCHIVE_PATH" \
               CODE_SIGN_IDENTITY="" \
               CODE_SIGNING_ALLOWED=NO \
-              build 2>&1 | tee "$BUILD_LOG"
+              ONLY_ACTIVE_ARCH=NO \
+              archive 2>&1 | tee "$BUILD_LOG"
             BUILD_EXIT_CODE=${PIPESTATUS[0]}
             set -e
           fi
           
-          # Check if build actually succeeded AND that the app was built
-          if [ "$BUILD_EXIT_CODE" -eq 0 ] && grep -q "BUILD SUCCEEDED\|Archive Succeeded" "$BUILD_LOG"; then
-            # Verify the app target was actually built (not just Pods)
-            # Archive always builds the app target, so check for archive success
-            if grep -q "Archive Succeeded\|Touch.*$SCHEME\.app\|Copying.*$SCHEME\.app" "$BUILD_LOG"; then
-              echo "✅ Archive succeeded and app target was built!"
+          # Check if archive actually succeeded
+          if [ "$BUILD_EXIT_CODE" -eq 0 ] && (grep -q "Archive Succeeded\|BUILD SUCCEEDED" "$BUILD_LOG"); then
+            # Verify archive was created
+            if [ -d "$ARCHIVE_PATH" ]; then
+              echo "✅ Archive succeeded and archive was created!"
               BUILD_SUCCESS=true
-            elif grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
-              # Check if app target appears (not just Pods)
-              if grep -qE "Building.*$SCHEME[^a-zA-Z]|Compiling.*$SCHEME[^a-zA-Z]|Linking.*$SCHEME[^a-zA-Z]|Touch.*$SCHEME\.app|Copying.*$SCHEME\.app" "$BUILD_LOG"; then
-                echo "✅ Build succeeded and app target was built!"
-                BUILD_SUCCESS=true
-              else
-                echo "⚠️  BUILD SUCCEEDED but app target may not have been built (only Pods?)"
-                echo "Checking build log for app target (excluding Pods)..."
-                grep -i "$SCHEME" "$BUILD_LOG" | grep -v "Pods\|EXConstants\|hermes" | tail -20 || echo "No app target found in log"
-                BUILD_SUCCESS=false
-              fi
             else
-              echo "⚠️  Build completed but no success message found"
+              echo "⚠️  Archive command succeeded but archive not found at $ARCHIVE_PATH"
               BUILD_SUCCESS=false
             fi
           else
-            echo "❌ Build failed (exit code: $BUILD_EXIT_CODE)"
+            echo "❌ Archive failed (exit code: $BUILD_EXIT_CODE)"
             BUILD_SUCCESS=false
           fi
           
@@ -552,155 +546,47 @@ jobs:
             exit 1
           fi
           
-          # Step 2: Verify app bundle was created in derived data
+          # Step 2: Verify archive contains app bundle
           echo ""
-          echo "Step 2: Verifying app bundle was created..."
+          echo "Step 2: Verifying archive contains app bundle..."
           
-          # Extract build output path from build log
-          echo "Extracting build output path from build log..."
-          BUILD_PRODUCTS_DIR=$(grep -o "BUILT_PRODUCTS_DIR=[^ ]*" "$BUILD_LOG" | head -1 | cut -d= -f2 | tr -d '"' || echo "")
-          TARGET_BUILD_DIR=$(grep -o "TARGET_BUILD_DIR=[^ ]*" "$BUILD_LOG" | head -1 | cut -d= -f2 | tr -d '"' || echo "")
-          
-          if [ -n "$BUILD_PRODUCTS_DIR" ]; then
-            echo "Found BUILT_PRODUCTS_DIR: $BUILD_PRODUCTS_DIR"
-          fi
-          if [ -n "$TARGET_BUILD_DIR" ]; then
-            echo "Found TARGET_BUILD_DIR: $TARGET_BUILD_DIR"
-          fi
-          
-          # Search in multiple locations with comprehensive patterns
-          echo ""
-          echo "Searching for app bundle..."
-          
-          # 1. Search by scheme name
-          APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
-          
-          # 2. Search in explicit build products directories from log
-          if [ -z "$APP_BUNDLE" ] && [ -n "$BUILD_PRODUCTS_DIR" ]; then
-            APP_BUNDLE=$(find "$BUILD_PRODUCTS_DIR" -name "*.app" -type d 2>/dev/null | head -n 1)
-          fi
-          
-          if [ -z "$APP_BUNDLE" ] && [ -n "$TARGET_BUILD_DIR" ]; then
-            APP_BUNDLE=$(find "$TARGET_BUILD_DIR" -name "*.app" -type d 2>/dev/null | head -n 1)
-          fi
-          
-          # 3. Search in Products directory with Release-iphoneos
-          if [ -z "$APP_BUNDLE" ]; then
-            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Release-iphoneos/*.app" -type d 2>/dev/null | head -n 1)
-          fi
-          
-          # 4. Search in any Products directory
-          if [ -z "$APP_BUNDLE" ]; then
-            APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/*/*.app" -type d 2>/dev/null | head -n 1)
-          fi
-          
-          # 5. Search in ios/build directory
-          if [ -z "$APP_BUNDLE" ]; then
-            APP_BUNDLE=$(find ios/build -name "*.app" -type d 2>/dev/null | head -n 1)
-          fi
-          
-          # 6. Search for ANY .app file in derived data (might have different name)
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "Searching for any .app files in derived data..."
-            ALL_APP_FILES=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | grep -v "Pods\|\.framework" | head -5)
-            if [ -n "$ALL_APP_FILES" ]; then
-              echo "Found .app files (excluding Pods/frameworks):"
-              echo "$ALL_APP_FILES"
-              APP_BUNDLE=$(echo "$ALL_APP_FILES" | head -n 1)
+          # Check archive first (most reliable - archive always contains app bundle)
+          if [ -d "$ARCHIVE_PATH" ]; then
+            echo "Archive exists, checking for app bundle..."
+            ARCHIVE_APP_BUNDLE=$(find "$ARCHIVE_PATH" -name "*.app" -type d | head -n 1)
+            if [ -n "$ARCHIVE_APP_BUNDLE" ]; then
+              echo "✅ Found app bundle in archive: $ARCHIVE_APP_BUNDLE"
+              APP_BUNDLE="$ARCHIVE_APP_BUNDLE"
+            else
+              echo "⚠️  Archive exists but no app bundle found inside"
+              echo "Archive structure:"
+              find "$ARCHIVE_PATH" -type d -maxdepth 3 | head -20
             fi
-          fi
-          
-          # 7. Check build log for actual output path
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "Checking build log for app bundle output path..."
-            APP_OUTPUT=$(grep -i "touch.*\.app\|copy.*\.app\|built.*\.app" "$BUILD_LOG" | grep -v "Pods\|framework" | head -1 || echo "")
-            if [ -n "$APP_OUTPUT" ]; then
-              echo "Found app output reference in log: $APP_OUTPUT"
-              # Try to extract path
-              APP_PATH=$(echo "$APP_OUTPUT" | grep -o "/[^ ]*\.app" | head -1 || echo "")
-              if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
-                APP_BUNDLE="$APP_PATH"
-              fi
-            fi
-          fi
-          
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "❌ ERROR: App bundle not found after comprehensive search!"
-            echo ""
-            echo "=== Comprehensive Search Results ==="
-            echo ""
-            echo "1. All .app files in DerivedData (excluding Pods/frameworks):"
-            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | grep -v "Pods\|\.framework" | head -20 || echo "None found"
-            echo ""
-            echo "2. Build log references to .app files:"
-            grep -i "\.app" "$BUILD_LOG" | grep -v "Pods\|framework\|note:" | tail -20 || echo "None found"
-            echo ""
-            echo "3. Build output directories from log:"
-            grep -E "BUILT_PRODUCTS_DIR|TARGET_BUILD_DIR|CONFIGURATION_BUILD_DIR" "$BUILD_LOG" | head -5 || echo "None found"
-            echo ""
-            echo "4. App target build phases from log:"
-            grep -i "touch\|copy\|built" "$BUILD_LOG" | grep -i "$SCHEME" | tail -10 || echo "None found"
-            echo ""
-            echo "Build log shows BUILD SUCCEEDED and app target was built, but app bundle is missing."
-            echo "This might indicate the app bundle is being created with a different name or in an unexpected location."
-            exit 1
           else
-            echo "✅ Found app bundle: $APP_BUNDLE"
-            echo "App bundle size: $(du -sh "$APP_BUNDLE" | cut -f1)"
+            echo "❌ ERROR: Archive not found at $ARCHIVE_PATH"
+            echo "Archive should have been created in Step 1"
+            exit 1
           fi
           
-          # Step 3: Create archive
+          # If not found in archive, this is an error (archive should always contain app bundle)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo ""
+            echo "❌ ERROR: Archive does not contain app bundle!"
+            echo "This indicates the archive only built Pods, not the app target."
+            echo ""
+            echo "Archive structure:"
+            find "$ARCHIVE_PATH" -type d -maxdepth 3
+            echo ""
+            echo "The scheme '$SCHEME' may not be configured to build the app target."
+            echo "Archive command should always build the app target, so this is unexpected."
+            exit 1
+          fi
+          
+          # Step 3: Archive already created in Step 1, verification complete
           echo ""
-          echo "Step 3: Creating archive..."
-          if [[ "$WORKSPACE" == *.xcworkspace ]]; then
-            xcodebuild -workspace "$WORKSPACE" \
-              -scheme "$SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -archivePath build/WorkoutTracker.xcarchive \
-              -allowProvisioningUpdates \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_ALLOWED=NO \
-              archive 2>&1 | tee archive.log || {
-                echo "❌ Archive failed!"
-                tail -100 archive.log
-                exit 1
-              }
-          else
-            xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
-              -scheme "$SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -archivePath build/WorkoutTracker.xcarchive \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_ALLOWED=NO \
-              archive 2>&1 | tee archive.log || {
-                echo "❌ Archive failed!"
-                tail -100 archive.log
-                exit 1
-              }
-          fi
-          
-          echo "=== Archive Verification ==="
-          echo "Archive contents:"
-          ls -la "$ARCHIVE_PATH/" || true
-          
-          # Verify archive contains app bundle
-          ARCHIVE_APP_BUNDLE=$(find "$ARCHIVE_PATH" -name "*.app" -type d | head -n 1)
-          if [ -z "$ARCHIVE_APP_BUNDLE" ]; then
-            echo "❌ ERROR: No app bundle found in archive!"
-            echo "Checking archive structure:"
-            find build/WorkoutTracker.xcarchive -type f -o -type d | head -30
-            echo ""
-            echo "Checking Products directory:"
-            ls -la build/WorkoutTracker.xcarchive/Products/ || true
-            echo ""
-            echo "This should not happen if build succeeded. Checking if app bundle exists elsewhere:"
-            find build -name "*.app" -type d || echo "No .app files found in build/"
-            exit 1
-          else
-            echo "✅ Found app bundle in archive: $ARCHIVE_APP_BUNDLE"
-          fi
+          echo "✅ Archive verification complete!"
+          echo "Archive: $ARCHIVE_PATH"
+          echo "App bundle: $APP_BUNDLE"
       
       - name: Export IPA (Development for Free Apple ID)
         run: |
