@@ -83,7 +83,7 @@ jobs:
             echo "                result_lines.append('      if deployment_target.nil? || deployment_target.to_f < 18.5\\n')" >> modify_post_install.py
             echo "                result_lines.append('        config.build_settings[\"IPHONEOS_DEPLOYMENT_TARGET\"] = \"18.5\"\\n')" >> modify_post_install.py
             echo "                result_lines.append('      end\\n')" >> modify_post_install.py
-            echo "                result_lines.append('      config.build_settings[\"CLANG_CXX_LANGUAGE_STANDARD\"] = \"c++17\"\\n')" >> modify_post_install.py
+            echo "                result_lines.append('      config.build_settings[\"CLANG_CXX_LANGUAGE_STANDARD\"] = \"c++20\"\\n')" >> modify_post_install.py
             echo "                result_lines.append('      config.build_settings[\"CLANG_CXX_LIBRARY\"] = \"libc++\"\\n')" >> modify_post_install.py
             echo "                result_lines.append('    end\\n')" >> modify_post_install.py
             echo "                result_lines.append('  end\\n')" >> modify_post_install.py
@@ -105,7 +105,7 @@ jobs:
             echo "    result_lines.append('      if deployment_target.nil? || deployment_target.to_f < 18.5\\n')" >> modify_post_install.py
             echo "    result_lines.append('        config.build_settings[\"IPHONEOS_DEPLOYMENT_TARGET\"] = \"18.5\"\\n')" >> modify_post_install.py
             echo "    result_lines.append('      end\\n')" >> modify_post_install.py
-            echo "    result_lines.append('      config.build_settings[\"CLANG_CXX_LANGUAGE_STANDARD\"] = \"c++17\"\\n')" >> modify_post_install.py
+            echo "    result_lines.append('      config.build_settings[\"CLANG_CXX_LANGUAGE_STANDARD\"] = \"c++20\"\\n')" >> modify_post_install.py
             echo "    result_lines.append('      config.build_settings[\"CLANG_CXX_LIBRARY\"] = \"libc++\"\\n')" >> modify_post_install.py
             echo "    result_lines.append('    end\\n')" >> modify_post_install.py
             echo "    result_lines.append('  end\\n')" >> modify_post_install.py
@@ -136,7 +136,7 @@ jobs:
             echo "        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.5'" >> Podfile
             echo '      end' >> Podfile
             echo '      # Fix for Objective-C++ compilation' >> Podfile
-            echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'" >> Podfile
+            echo "      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'" >> Podfile
             echo "      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'" >> Podfile
             echo '    end' >> Podfile
             echo '  end' >> Podfile
@@ -168,7 +168,7 @@ jobs:
           echo "Added fixes:"
           echo "- Swift version 5.0"
           echo "- Nullability warning suppressions"
-          echo "- C++17 standard for Objective-C++"
+          echo "- C++20 standard for Objective-C++"
           echo "- iOS 18.5 deployment target"
           echo ""
           echo "Podfile preview (last 20 lines):"
