@@ -153,15 +153,13 @@ jobs:
             exit 1
           fi
           
-          # Create export options for development distribution (works with free Apple ID)
-          # Use "development" instead of "ad-hoc" - ad-hoc requires device UDIDs and paid account
+          # For free Apple ID, try exporting without specifying method
+          # Xcode will auto-detect the appropriate method based on signing
           cat > exportOptions.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>development</string>
             <key>signingStyle</key>
             <string>automatic</string>
             <key>teamID</key>
@@ -170,11 +168,31 @@ jobs:
           </plist>
           EOF
           
-          # Export IPA
+          # Try export - if it fails, try building IPA directly from archive
           xcodebuild -exportArchive \
             -archivePath build/WorkoutTracker.xcarchive \
             -exportPath build \
-            -exportOptionsPlist exportOptions.plist
+            -exportOptionsPlist exportOptions.plist || {
+            echo "Standard export failed, trying alternative method..."
+            # Alternative: Extract and repackage manually
+            ARCHIVE_PATH="build/WorkoutTracker.xcarchive"
+            APP_PATH="$ARCHIVE_PATH/Products/Applications/WorkoutTracker.app"
+            IPA_PATH="build/WorkoutTracker.ipa"
+            
+            if [ -d "$APP_PATH" ]; then
+              echo "Creating IPA manually from app bundle..."
+              mkdir -p build/Payload
+              cp -R "$APP_PATH" build/Payload/
+              cd build
+              zip -r WorkoutTracker.ipa Payload
+              cd ..
+              echo "IPA created manually"
+            else
+              echo "ERROR: App bundle not found in archive"
+              ls -la "$ARCHIVE_PATH/Products/Applications/" || true
+              exit 1
+            fi
+          }
           
           echo "=== Export Complete ==="
           ls -la build/
