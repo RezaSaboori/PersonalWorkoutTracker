@@ -427,111 +427,166 @@ jobs:
           echo "Xcode version:"
           xcodebuild -version
           
-          # Build archive - use development signing for free Apple ID
+          # Step 1: Build the app first (not archive) to verify compilation succeeds
+          echo "Step 1: Building app to verify compilation..."
           BUILD_SUCCESS=false
+          BUILD_LOG="build.log"
           
           if [[ "$WORKSPACE" == *.xcworkspace ]]; then
             echo "Building with workspace..."
-            if xcodebuild -workspace "$WORKSPACE" \
+            xcodebuild -workspace "$WORKSPACE" \
               -scheme "$SCHEME" \
               -configuration Release \
               -sdk iphoneos \
-              -archivePath build/WorkoutTracker.xcarchive \
+              -destination "generic/platform=iOS" \
               -allowProvisioningUpdates \
               DEVELOPMENT_TEAM="" \
               CODE_SIGN_IDENTITY="Apple Development" \
               CODE_SIGN_STYLE="Automatic" \
-              archive 2>&1 | tee build.log; then
-              BUILD_SUCCESS=true
-            else
-              echo "Build with automatic signing failed, checking logs..."
-              cat build.log | tail -50
-              echo ""
-              echo "Trying without code signing..."
-              if xcodebuild -workspace "$WORKSPACE" \
-                -scheme "$SCHEME" \
-                -configuration Release \
-                -sdk iphoneos \
-                -archivePath build/WorkoutTracker.xcarchive \
-                CODE_SIGN_IDENTITY="" \
-                CODE_SIGNING_ALLOWED=NO \
-                archive 2>&1 | tee build.log; then
-                BUILD_SUCCESS=true
-              fi
-            fi
+              build 2>&1 | tee "$BUILD_LOG" || true
           else
             echo "Building with project..."
-            if xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+            xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
               -scheme "$SCHEME" \
               -configuration Release \
               -sdk iphoneos \
-              -archivePath build/WorkoutTracker.xcarchive \
+              -destination "generic/platform=iOS" \
               -allowProvisioningUpdates \
               DEVELOPMENT_TEAM="" \
               CODE_SIGN_IDENTITY="Apple Development" \
               CODE_SIGN_STYLE="Automatic" \
-              archive 2>&1 | tee build.log; then
-              BUILD_SUCCESS=true
-            else
-              echo "Build with automatic signing failed, checking logs..."
-              cat build.log | tail -50
-              echo ""
-              echo "Trying without code signing..."
-              if xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+              build 2>&1 | tee "$BUILD_LOG" || true
+          fi
+          
+          # Check if build actually succeeded
+          if grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
+            echo "✅ Build succeeded!"
+            BUILD_SUCCESS=true
+          else
+            echo "❌ Build did not succeed (no 'BUILD SUCCEEDED' in log)"
+            BUILD_SUCCESS=false
+          fi
+          
+          # If build failed, try without code signing
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
+            echo "Trying build without code signing..."
+            if [[ "$WORKSPACE" == *.xcworkspace ]]; then
+              xcodebuild -workspace "$WORKSPACE" \
                 -scheme "$SCHEME" \
                 -configuration Release \
                 -sdk iphoneos \
-                -archivePath build/WorkoutTracker.xcarchive \
+                -destination "generic/platform=iOS" \
                 CODE_SIGN_IDENTITY="" \
                 CODE_SIGNING_ALLOWED=NO \
-                archive 2>&1 | tee build.log; then
-                BUILD_SUCCESS=true
-              fi
+                build 2>&1 | tee "$BUILD_LOG" || true
+            else
+              xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+                -scheme "$SCHEME" \
+                -configuration Release \
+                -sdk iphoneos \
+                -destination "generic/platform=iOS" \
+                CODE_SIGN_IDENTITY="" \
+                CODE_SIGNING_ALLOWED=NO \
+                build 2>&1 | tee "$BUILD_LOG" || true
+            fi
+            
+            if grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
+              echo "✅ Build succeeded without signing!"
+              BUILD_SUCCESS=true
             fi
           fi
           
+          # Analyze build log for errors
           if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
             echo "❌ ERROR: Build failed!"
             echo ""
             echo "=== Build Log Analysis ==="
             echo "Looking for actual error messages..."
             echo ""
             
-            # Show errors from build log
-            if [ -f build.log ]; then
-              echo "--- Errors found in build log ---"
-              grep -i "error:" build.log | tail -50 || echo "No 'error:' patterns found"
+            if [ -f "$BUILD_LOG" ]; then
+              echo "--- Compilation errors ---"
+              grep -i "error:" "$BUILD_LOG" | grep -v "note:" | tail -100 || echo "No 'error:' patterns found"
               echo ""
-              echo "--- Warnings that might be relevant ---"
-              grep -i "warning:" build.log | grep -i "expo\|react-native\|pod" | tail -20 || echo "No relevant warnings found"
+              echo "--- Failed build commands ---"
+              grep -i "failed\|error\|undefined" "$BUILD_LOG" | tail -50 || echo "No failure patterns found"
               echo ""
-              echo "--- Last 200 lines of build log ---"
-              tail -200 build.log
+              echo "--- Last 300 lines of build log ---"
+              tail -300 "$BUILD_LOG"
             else
               echo "Build log file not found!"
             fi
             exit 1
           fi
           
-          echo "=== Build Complete ==="
+          # Step 2: Verify app bundle was created in derived data
+          echo ""
+          echo "Step 2: Verifying app bundle was created..."
+          APP_BUNDLE=$(find ~/Library/Developer/Xcode/DerivedData -name "${SCHEME}.app" -type d 2>/dev/null | head -n 1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "❌ ERROR: App bundle not found in derived data!"
+            echo "Searching for any .app files:"
+            find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d 2>/dev/null | head -10
+            echo ""
+            echo "Build log shows BUILD SUCCEEDED but app bundle missing - this indicates a build configuration issue"
+            exit 1
+          else
+            echo "✅ Found app bundle: $APP_BUNDLE"
+          fi
+          
+          # Step 3: Create archive
+          echo ""
+          echo "Step 3: Creating archive..."
+          if [[ "$WORKSPACE" == *.xcworkspace ]]; then
+            xcodebuild -workspace "$WORKSPACE" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -sdk iphoneos \
+              -archivePath build/WorkoutTracker.xcarchive \
+              -allowProvisioningUpdates \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_ALLOWED=NO \
+              archive 2>&1 | tee archive.log || {
+                echo "❌ Archive failed!"
+                tail -100 archive.log
+                exit 1
+              }
+          else
+            xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -sdk iphoneos \
+              -archivePath build/WorkoutTracker.xcarchive \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_ALLOWED=NO \
+              archive 2>&1 | tee archive.log || {
+                echo "❌ Archive failed!"
+                tail -100 archive.log
+                exit 1
+              }
+          fi
+          
+          echo "=== Archive Created ==="
           echo "Archive contents:"
           ls -la build/WorkoutTracker.xcarchive/ || true
           
           # Verify archive contains app bundle
-          APP_BUNDLE=$(find build/WorkoutTracker.xcarchive -name "*.app" -type d | head -n 1)
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "WARNING: No app bundle found in archive!"
+          ARCHIVE_APP_BUNDLE=$(find build/WorkoutTracker.xcarchive -name "*.app" -type d | head -n 1)
+          if [ -z "$ARCHIVE_APP_BUNDLE" ]; then
+            echo "❌ ERROR: No app bundle found in archive!"
             echo "Checking archive structure:"
             find build/WorkoutTracker.xcarchive -type f -o -type d | head -30
             echo ""
             echo "Checking Products directory:"
             ls -la build/WorkoutTracker.xcarchive/Products/ || true
             echo ""
-            echo "Trying to find any .app files:"
-            find build -name "*.app" -type d || echo "No .app files found"
+            echo "This should not happen if build succeeded. Checking if app bundle exists elsewhere:"
+            find build -name "*.app" -type d || echo "No .app files found in build/"
             exit 1
           else
-            echo "✅ Found app bundle: $APP_BUNDLE"
+            echo "✅ Found app bundle in archive: $ARCHIVE_APP_BUNDLE"
           fi
       
       - name: Export IPA (Development for Free Apple ID)
