@@ -432,8 +432,10 @@ jobs:
           BUILD_SUCCESS=false
           BUILD_LOG="build.log"
           
+          # Build with better error capture
           if [[ "$WORKSPACE" == *.xcworkspace ]]; then
             echo "Building with workspace..."
+            set +e  # Don't exit on error, we'll check manually
             xcodebuild -workspace "$WORKSPACE" \
               -scheme "$SCHEME" \
               -configuration Release \
@@ -441,60 +443,33 @@ jobs:
               -destination "generic/platform=iOS" \
               -allowProvisioningUpdates \
               DEVELOPMENT_TEAM="" \
-              CODE_SIGN_IDENTITY="Apple Development" \
-              CODE_SIGN_STYLE="Automatic" \
-              build 2>&1 | tee "$BUILD_LOG" || true
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_ALLOWED=NO \
+              build 2>&1 | tee "$BUILD_LOG"
+            BUILD_EXIT_CODE=${PIPESTATUS[0]}
+            set -e
           else
             echo "Building with project..."
+            set +e
             xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
               -scheme "$SCHEME" \
               -configuration Release \
               -sdk iphoneos \
               -destination "generic/platform=iOS" \
-              -allowProvisioningUpdates \
-              DEVELOPMENT_TEAM="" \
-              CODE_SIGN_IDENTITY="Apple Development" \
-              CODE_SIGN_STYLE="Automatic" \
-              build 2>&1 | tee "$BUILD_LOG" || true
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_ALLOWED=NO \
+              build 2>&1 | tee "$BUILD_LOG"
+            BUILD_EXIT_CODE=${PIPESTATUS[0]}
+            set -e
           fi
           
           # Check if build actually succeeded
-          if grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
+          if [ "$BUILD_EXIT_CODE" -eq 0 ] && grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
             echo "✅ Build succeeded!"
             BUILD_SUCCESS=true
           else
-            echo "❌ Build did not succeed (no 'BUILD SUCCEEDED' in log)"
+            echo "❌ Build failed (exit code: $BUILD_EXIT_CODE)"
             BUILD_SUCCESS=false
-          fi
-          
-          # If build failed, try without code signing
-          if [ "$BUILD_SUCCESS" = false ]; then
-            echo ""
-            echo "Trying build without code signing..."
-            if [[ "$WORKSPACE" == *.xcworkspace ]]; then
-              xcodebuild -workspace "$WORKSPACE" \
-                -scheme "$SCHEME" \
-                -configuration Release \
-                -sdk iphoneos \
-                -destination "generic/platform=iOS" \
-                CODE_SIGN_IDENTITY="" \
-                CODE_SIGNING_ALLOWED=NO \
-                build 2>&1 | tee "$BUILD_LOG" || true
-            else
-              xcodebuild -project "${WORKSPACE%.xcworkspace}.xcodeproj" \
-                -scheme "$SCHEME" \
-                -configuration Release \
-                -sdk iphoneos \
-                -destination "generic/platform=iOS" \
-                CODE_SIGN_IDENTITY="" \
-                CODE_SIGNING_ALLOWED=NO \
-                build 2>&1 | tee "$BUILD_LOG" || true
-            fi
-            
-            if grep -q "BUILD SUCCEEDED" "$BUILD_LOG"; then
-              echo "✅ Build succeeded without signing!"
-              BUILD_SUCCESS=true
-            fi
           fi
           
           # Analyze build log for errors
@@ -503,18 +478,30 @@ jobs:
             echo "❌ ERROR: Build failed!"
             echo ""
             echo "=== Build Log Analysis ==="
-            echo "Looking for actual error messages..."
+            echo "Exit code: $BUILD_EXIT_CODE"
             echo ""
             
             if [ -f "$BUILD_LOG" ]; then
-              echo "--- Compilation errors ---"
-              grep -i "error:" "$BUILD_LOG" | grep -v "note:" | tail -100 || echo "No 'error:' patterns found"
+              echo "--- Actual compilation errors (filtered) ---"
+              # Filter out environment variables and show actual errors
+              grep -E "error:|Error:|ERROR|failed|Failed|FAILED|undefined|missing|not found" "$BUILD_LOG" | \
+                grep -v "export " | \
+                grep -v "BUILD_DIR=" | \
+                grep -v "SDKROOT=" | \
+                grep -v "ARCHS=" | \
+                tail -100 || echo "No filtered errors found"
               echo ""
-              echo "--- Failed build commands ---"
-              grep -i "failed\|error\|undefined" "$BUILD_LOG" | tail -50 || echo "No failure patterns found"
+              echo "--- All error lines (last 150) ---"
+              grep -i "error" "$BUILD_LOG" | tail -150 || echo "No error lines found"
               echo ""
-              echo "--- Last 300 lines of build log ---"
-              tail -300 "$BUILD_LOG"
+              echo "--- Failed commands ---"
+              grep -i "failed\|FAILED" "$BUILD_LOG" | tail -50 || echo "No failed commands found"
+              echo ""
+              echo "--- Missing files/undefined symbols ---"
+              grep -i "missing\|undefined\|not found\|No such file" "$BUILD_LOG" | tail -50 || echo "No missing file errors found"
+              echo ""
+              echo "--- Last 500 lines of build log (raw) ---"
+              tail -500 "$BUILD_LOG"
             else
               echo "Build log file not found!"
             fi
