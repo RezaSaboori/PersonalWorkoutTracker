@@ -11,19 +11,19 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       
       - name: Generate native project
-        run: npx expo prebuild --platform ios
+        run: npx expo prebuild --platform ios --clean
       
       - name: Setup Xcode
         run: |
@@ -31,50 +31,43 @@ jobs:
           xcodebuild -version
       
       - name: Build iOS app
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
         run: |
-          # Open Xcode project
+          set -euo pipefail
+          mkdir -p build
           xcodebuild -workspace ios/WorkoutTracker.xcworkspace \
             -scheme WorkoutTracker \
             -configuration Release \
-            -archivePath build/WorkoutTracker.xcarchive \
-            -allowProvisioningUpdates \
+            -derivedDataPath build/DerivedData \
+            -archivePath "$GITHUB_WORKSPACE/build/WorkoutTracker.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
             archive
       
-      - name: Export IPA
+      - name: Package unsigned .app (not installable on device)
         run: |
-          # Create export options
-          cat > exportOptions.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>ad-hoc</string>
-            <key>teamID</key>
-            <string>YOUR_TEAM_ID</string>
-          </dict>
-          </plist>
-          EOF
-          
-          xcodebuild -exportArchive \
-            -archivePath build/WorkoutTracker.xcarchive \
-            -exportPath build \
-            -exportOptionsPlist exportOptions.plist
+          set -euo pipefail
+          APP_PATH="$(ls -1 "$GITHUB_WORKSPACE/build/WorkoutTracker.xcarchive/Products/Applications/"*.app | head -n 1)"
+          echo "Found app at: $APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$GITHUB_WORKSPACE/build/WorkoutTracker.app.zip"
       
-      - name: Upload IPA artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload unsigned build artifact
+        uses: actions/upload-artifact@v4
         with:
           name: ios-build
-          path: build/*.ipa
+          path: |
+            build/WorkoutTracker.xcarchive
+            build/WorkoutTracker.app.zip
+          if-no-files-found: error
       
       - name: Upload IPA to release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: build/*.ipa
+          files: |
+            build/WorkoutTracker.app.zip
+            build/WorkoutTracker.xcarchive
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
