@@ -537,7 +537,8 @@ jobs:
           fi
           
           # Check if archive actually succeeded AND that app target was built
-          if [ "$BUILD_EXIT_CODE" -eq 0 ] && (grep -q "Archive Succeeded\|BUILD SUCCEEDED" "$BUILD_LOG"); then
+          # Xcode's summary line can be either "Archive Succeeded" or "** ARCHIVE SUCCEEDED **"
+          if [ "$BUILD_EXIT_CODE" -eq 0 ] && (grep -q "ARCHIVE SUCCEEDED\\|Archive Succeeded\\|BUILD SUCCEEDED" "$BUILD_LOG"); then
             # Verify archive was created
             if [ -d "$ARCHIVE_PATH" ]; then
               # Check if app target was actually built (not just Pods)
