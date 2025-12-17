@@ -20,7 +20,7 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       
       - name: Check Expo compatibility
         run: |
@@ -248,11 +248,9 @@ jobs:
           xcrun --show-sdk-path --sdk iphoneos || true
           xcrun --show-sdk-path --sdk iphonesimulator || true
       
-      - name: Setup Xcode Signing (Free Apple ID)
+      - name: Setup Xcode Signing (Unsigned archive)
         run: |
-          # Xcode will use automatic signing with free Apple ID
-          # This requires manual setup in Xcode, but we'll try automatic
-          echo "Setting up automatic code signing..."
+          echo "Building an unsigned .xcarchive (no IPA export, no code signing)."
       
       - name: Create build directory
         run: mkdir -p build
@@ -639,98 +637,20 @@ jobs:
           echo "Archive: $ARCHIVE_PATH"
           echo "App bundle: $APP_BUNDLE"
       
-      - name: Export IPA (Development for Free Apple ID)
+      - name: Verify archive exists
         run: |
-          set -e  # Exit on error
-          echo "=== Starting IPA Export ==="
-          
+          set -euo pipefail
+          echo "=== Verifying .xcarchive ==="
           ARCHIVE_PATH="ios/build/WorkoutTracker.xcarchive"
-          
-          # Verify archive exists
           if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERROR: Archive not found!"
-            ls -la build/
+            echo "❌ ERROR: Archive not found at $ARCHIVE_PATH"
+            echo "Listing ios/build:"
+            ls -la ios/build || true
             exit 1
           fi
-          
-          # Find the app bundle in the archive
-          APP_BUNDLE=$(find "$ARCHIVE_PATH" -name "*.app" -type d | head -n 1)
-          if [ -z "$APP_BUNDLE" ]; then
-            echo "ERROR: No app bundle found in archive!"
-            echo "Archive structure:"
-            find "$ARCHIVE_PATH" -type f -o -type d | head -30
-            echo ""
-            echo "Products directory:"
-            ls -la "$ARCHIVE_PATH/Products/" || true
-            exit 1
-          fi
-          
-          APP_NAME=$(basename "$APP_BUNDLE" .app)
-          echo "Found app bundle: $APP_BUNDLE"
-          echo "App name: $APP_NAME"
-          
-          # Try xcodebuild export first (for signed builds)
-          cat > exportOptions.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>automatic</string>
-          </dict>
-          </plist>
-          EOF
-          
-          # Try xcodebuild export
-          if xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportPath build \
-            -exportOptionsPlist exportOptions.plist 2>&1 | tee export.log; then
-            echo "✅ Export succeeded via xcodebuild"
-          else
-            echo "⚠️  xcodebuild export failed (this is OK for unsigned builds)"
-            echo "Creating IPA manually from app bundle..."
-            
-            # Create IPA manually (works for both signed and unsigned)
-            mkdir -p build/Payload
-            cp -R "$APP_BUNDLE" "build/Payload/$APP_NAME.app"
-            
-            # Remove any existing IPA
-            rm -f "build/${APP_NAME}.ipa"
-            
-            # Create IPA
-            cd build
-            zip -r "${APP_NAME}.ipa" Payload
-            cd ..
-            
-            # Cleanup
-            rm -rf build/Payload
-            
-            echo "✅ IPA created manually: build/${APP_NAME}.ipa"
-          fi
-          
-          # Verify IPA was created
-          echo ""
-          echo "=== Export Complete ==="
-          echo "Build directory contents:"
-          ls -lah build/ | grep -E "\.(ipa|xcarchive)" || ls -lah build/
-          
-          IPA_FILE=$(find build -name "*.ipa" -type f | head -n 1)
-          if [ -z "$IPA_FILE" ]; then
-            echo "❌ ERROR: No IPA file found!"
-            exit 1
-          else
-            echo "✅ IPA file found: $IPA_FILE"
-            echo "File size: $(du -h "$IPA_FILE" | cut -f1)"
-          fi
-      
-      - name: Check for IPA file
-        run: |
-          echo "=== Checking for IPA files ==="
-          find build -name "*.ipa" -type f || echo "No IPA files found in build/"
-          ls -la build/ || echo "build/ directory doesn't exist"
+          echo "✅ Archive found: $ARCHIVE_PATH"
+          echo "Archive size:"
+          du -h -d 1 "$ARCHIVE_PATH" | tail -n 5 || true
       
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
@@ -738,15 +658,14 @@ jobs:
         with:
           name: ios-build
           path: |
-            build/*.ipa
-            build/*.xcarchive
-          if-no-files-found: warn
+            ios/build/WorkoutTracker.xcarchive
+          if-no-files-found: error
       
-      - name: Upload IPA to release
+      - name: Upload archive to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/*.ipa
+          files: ios/build/WorkoutTracker.xcarchive
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
