@@ -14,7 +14,7 @@ interface AppleAIModule {
 
 // Try to load native Apple AI module
 let AppleAI: AppleAIModule | null = null;
-let isAppleAIAvailable = false;
+let appleAIModuleAvailable = false;
 
 // Check if we're in a native build (not Expo Go)
 const isNativeBuild = Constants.executionEnvironment !== 'storeClient' && 
@@ -31,7 +31,7 @@ if (isNativeBuild && Platform.OS === 'ios') {
         predictOptimalRecovery: AppleAIModule.predictOptimalRecovery.bind(AppleAIModule),
         isAvailable: AppleAIModule.isAvailable.bind(AppleAIModule),
       };
-      isAppleAIAvailable = true;
+      appleAIModuleAvailable = true;
     }
   } catch (error) {
     // Native module not available - will use fallback
@@ -50,7 +50,7 @@ export async function generateAIRecommendations(
   streak: { current: number; longest: number }
 ): Promise<Recommendation[]> {
   // If Apple AI is available, use it
-  if (isAppleAIAvailable && AppleAI) {
+  if (appleAIModuleAvailable && AppleAI) {
     try {
       const workoutData = JSON.stringify({
         workouts: workouts.slice(-10), // Last 10 workouts for context
@@ -86,7 +86,7 @@ export async function analyzeWorkoutPatterns(
   insights: string[];
   suggestions: string[];
 }> {
-  if (isAppleAIAvailable && AppleAI) {
+  if (appleAIModuleAvailable && AppleAI) {
     try {
       const data = JSON.stringify({ workouts: workouts.slice(-20) });
       const analysis = await AppleAI.analyzeWorkoutPattern(data);
@@ -111,7 +111,7 @@ export async function predictRecoveryTime(
   recentWorkouts: WorkoutCompletion[],
   lastWorkout: WorkoutCompletion
 ): Promise<number> {
-  if (isAppleAIAvailable && AppleAI) {
+  if (appleAIModuleAvailable && AppleAI) {
     try {
       const data = JSON.stringify({ recentWorkouts, lastWorkout });
       const prediction = await AppleAI.predictOptimalRecovery(data);
@@ -237,6 +237,6 @@ function calculateProgressiveOverload(workouts: WorkoutCompletion[], exerciseId:
  * Check if Apple AI is available on this device
  */
 export function isAppleAIAvailable(): boolean {
-  return isAppleAIAvailable && Platform.OS === 'ios';
+  return appleAIModuleAvailable && Platform.OS === 'ios';
 }
 
